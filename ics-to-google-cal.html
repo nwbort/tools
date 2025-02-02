@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICS to Google Calendar Converter</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            line-height: 1.5;
+        }
+        .upload-container {
+            border: 2px dashed #ccc;
+            border-radius: 4px;
+            padding: 2rem;
+            text-align: center;
+            margin: 1rem 0;
+            cursor: pointer;
+        }
+        .upload-container:hover {
+            border-color: #4285f4;
+        }
+        .upload-container.dragover {
+            background: #f8f9fa;
+            border-color: #4285f4;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .gcal-link {
+            display: inline-block;
+            background: #4285f4;
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+        }
+        .gcal-link:hover {
+            background: #3367d6;
+        }
+        #result {
+            margin-top: 1rem;
+        }
+        .error {
+            color: #d93025;
+            margin-top: 1rem;
+        }
+        #fileInfo {
+            margin-top: 1rem;
+            color: #666;
+        }
+        #debug {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <h1>ICS to Google Calendar Converter</h1>
+    <p>Upload your ICS file:</p>
+    
+    <div class="upload-container" id="dropZone">
+        <input type="file" id="fileInput" accept=".ics">
+        <div>
+            Drag & drop your ICS file here<br>
+            or click to select file
+        </div>
+    </div>
+    <div id="fileInfo"></div>
+    <div id="result"></div>
+    <div id="debug"></div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const resultDiv = document.getElementById('result');
+        const debugDiv = document.getElementById('debug');
+
+        fileInput.addEventListener('change', handleFile);
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.ics')) {
+                fileInput.files = e.dataTransfer.files;
+                handleFile({ target: fileInput });
+            } else {
+                showError('Please upload an ICS file');
+            }
+        });
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            fileInfo.textContent = `Selected file: ${file.name}`;
+            resultDiv.innerHTML = '';
+            debugDiv.innerHTML = '';
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const icsContent = e.target.result;
+                    debugDiv.textContent = `File content:\n${icsContent.slice(0, 500)}...`;
+                    
+                    const event = parseICS(icsContent);
+                    
+                    // Create Google Calendar link
+                    const baseUrl = 'https://www.google.com/calendar/event?';
+                    const params = new URLSearchParams({
+                        action: 'TEMPLATE',
+                        text: event.summary || 'Event',
+                        dates: `${formatDateForGoogle(event.start)}/${formatDateForGoogle(event.end)}`,
+                        details: event.description || '',
+                        location: event.location || ''
+                    });
+
+                    const googleLink = `${baseUrl}&${params.toString()}`;
+                    
+                    // Display result with both button and raw link
+                    const link = document.createElement('a');
+                    link.href = googleLink;
+                    link.target = '_blank';
+                    link.className = 'gcal-link';
+                    link.textContent = 'Add to Google Calendar';
+                    
+                    const rawLink = document.createElement('div');
+                    rawLink.style.marginTop = '1rem';
+                    rawLink.innerHTML = `
+                        <strong>Generated Link:</strong><br>
+                        <a href="${googleLink}" target="_blank">${googleLink}</a>
+                    `;
+                    
+                    resultDiv.appendChild(link);
+                    resultDiv.appendChild(rawLink);
+                    
+                    // Show parsed event details
+                    debugDiv.textContent += '\n\nParsed event details:\n' + 
+                        JSON.stringify(event, null, 2) + 
+                        '\n\nGenerated URL:\n' + googleLink;
+                    
+                } catch (error) {
+                    showError(error.message);
+                }
+            };
+            reader.onerror = () => showError('Error reading file');
+            reader.readAsText(file);
+        }
+
+        function showError(message) {
+            resultDiv.innerHTML = `<div class="error">Error: ${message}</div>`;
+        }
+
+        function parseICS(ics) {
+            const lines = ics.split('\n').map(line => line.trim());
+            const event = {};
+            let inEvent = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Only parse content within VEVENT
+                if (line === 'BEGIN:VEVENT') {
+                    inEvent = true;
+                    continue;
+                }
+                if (line === 'END:VEVENT') {
+                    inEvent = false;
+                    continue;
+                }
+                if (!inEvent) continue;
+
+                if (line.startsWith('SUMMARY:')) {
+                    event.summary = line.substring(8);
+                } else if (line.startsWith('DTSTART')) {
+                    event.start = line.includes(':') ? line.split(':')[1] : '';
+                } else if (line.startsWith('DTEND')) {
+                    event.end = line.includes(':') ? line.split(':')[1] : '';
+                } else if (line.startsWith('DESCRIPTION:')) {
+                    event.description = line.substring(12);
+                } else if (line.startsWith('LOCATION:')) {
+                    event.location = line.substring(9);
+                }
+            }
+
+            if (!event.start || !event.end) {
+                throw new Error('Required event details (start/end time) not found in ICS');
+            }
+
+            return event;
+        }
+
+        function formatDateForGoogle(icsDate) {
+            // Handle date with timezone (e.g., "TZID=America/New_York:20240315T100000")
+            if (icsDate.includes('TZID=')) {
+                const datePart = icsDate.split(':')[1];
+                return formatDateString(datePart);
+            }
+            
+            // Handle UTC dates (ending with Z)
+            if (icsDate.endsWith('Z')) {
+                return formatDateString(icsDate.slice(0, -1));
+            }
+            
+            // Handle dates without timezone
+            return formatDateString(icsDate);
+        }
+
+        function formatDateString(dateStr) {
+            // Remove any non-alphanumeric characters
+            const cleaned = dateStr.replace(/\D/g, '');
+            
+            // Basic validation
+            if (cleaned.length < 8) {
+                throw new Error('Invalid date format in ICS file');
+            }
+
+            // Check if it's a full datetime (with time component) or just a date
+            if (cleaned.length >= 14) {
+                // It's a full datetime - insert T between date and time
+                return cleaned.slice(0, 8) + 'T' + cleaned.slice(8, 14);
+            } else {
+                // It's just a date, append default time (000000)
+                return cleaned.slice(0, 8) + 'T' + '000000';
+            }
+        }
+    </script>
+</body>
+</html>
