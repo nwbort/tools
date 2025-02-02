@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EXIF Data Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+        }
+        .container {
+            margin-top: 20px;
+        }
+        .preview {
+            margin: 20px 0;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        .exif-data {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .section {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        .section:last-child {
+            border-bottom: none;
+        }
+        .section-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>EXIF Data Viewer</h1>
+    <p>Upload a JPEG image to view its EXIF metadata</p>
+
+    <input type="file" accept="image/jpeg,image/jpg" id="imageInput" />
+
+    <div class="container">
+        <div class="preview" id="preview"></div>
+        <div class="exif-data" id="exifData"></div>
+    </div>
+
+    <script>
+        function formatExifData(tags) {
+            const sections = {
+                'Image Information': [
+                    'Make', 'Model', 'Software', 'ModifyDate', 'DateTimeOriginal', 'CreateDate',
+                    'ImageWidth', 'ImageHeight', 'Orientation', 'XResolution', 'YResolution'
+                ],
+                'Camera Settings': [
+                    'ExposureTime', 'FNumber', 'ExposureProgram', 'ISO', 'ShutterSpeedValue',
+                    'ApertureValue', 'ExposureBiasValue', 'MaxApertureValue', 'MeteringMode',
+                    'Flash', 'FocalLength', 'WhiteBalance'
+                ],
+                'GPS Information': [
+                    'GPSLatitude', 'GPSLongitude', 'GPSAltitude', 'GPSTimeStamp', 'GPSDateStamp'
+                ],
+                'Other': []
+            };
+
+            let output = '';
+            let usedTags = new Set();
+
+            // Process known sections
+            for (const [sectionName, sectionTags] of Object.entries(sections)) {
+                let sectionContent = '';
+                
+                for (const tag of sectionTags) {
+                    if (tag in tags) {
+                        sectionContent += `${tag}: ${tags[tag]}\n`;
+                        usedTags.add(tag);
+                    }
+                }
+
+                if (sectionContent) {
+                    output += `[${sectionName}]\n${sectionContent}\n`;
+                }
+            }
+
+            // Add remaining tags to Other section
+            let otherContent = '';
+            for (const [tag, value] of Object.entries(tags)) {
+                if (!usedTags.has(tag)) {
+                    otherContent += `${tag}: ${value}\n`;
+                }
+            }
+
+            if (otherContent) {
+                output += `[Other Tags]\n${otherContent}`;
+            }
+
+            return output || 'No EXIF data found';
+        }
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Preview image
+            const preview = document.getElementById('preview');
+            const img = document.createElement('img');
+            img.file = file;
+            preview.innerHTML = '';
+            preview.appendChild(img);
+
+            // Read and display the image
+            const reader = new FileReader();
+            reader.onload = (function(aImg) {
+                return function(e) {
+                    aImg.src = e.target.result;
+                };
+            })(img);
+            reader.readAsDataURL(file);
+
+            // Read EXIF
+            EXIF.getData(file, function() {
+                const tags = EXIF.getAllTags(this);
+                const exifDataDiv = document.getElementById('exifData');
+                exifDataDiv.textContent = formatExifData(tags);
+            });
+        }
+
+        document.getElementById('imageInput').addEventListener('change', handleFile);
+    </script>
+</body>
+</html>
