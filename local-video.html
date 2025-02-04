@@ -34,6 +34,11 @@
         .video-item:hover {
             background-color: #e0e0e0;
         }
+        .video-info {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
         #videoPlayer {
             width: 100%;
             max-width: 800px;
@@ -42,6 +47,9 @@
         }
         .controls {
             margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
         }
         button {
             padding: 8px 16px;
@@ -54,6 +62,27 @@
         button:hover {
             background-color: #0056b3;
         }
+        .active {
+            background-color: #007bff;
+            color: white;
+        }
+        #status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .error {
+            background-color: #ffe6e6;
+            color: #d63939;
+        }
+        .info {
+            background-color: #e6f3ff;
+            color: #006ee6;
+        }
+        #currentFolder {
+            margin-left: 10px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -62,63 +91,146 @@
         <div class="controls">
             <button onclick="document.getElementById('folderInput').click()">Select Folder</button>
             <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none">
+            <span id="currentFolder"></span>
+        </div>
+        <div id="status" class="info">
+            Supported formats: MP4 (H.264), WebM (VP8/VP9), Ogg (Theora)
         </div>
         <div id="videoList"></div>
         <video id="videoPlayer" controls></video>
     </div>
 
     <script>
-        // Get elements
         const folderInput = document.getElementById('folderInput');
         const videoList = document.getElementById('videoList');
         const videoPlayer = document.getElementById('videoPlayer');
+        const status = document.getElementById('status');
+        const currentFolder = document.getElementById('currentFolder');
 
-        // Supported video formats
-        const videoFormats = ['.mp4', '.webm', '.ogg', '.mov'];
-
-        // Load last used folder path from localStorage
-        const lastPath = localStorage.getItem('lastVideoFolder');
-        if (lastPath) {
-            console.log('Last used folder:', lastPath);
+        // Test browser video support
+        function checkVideoSupport() {
+            const video = document.createElement('video');
+            return {
+                mp4: video.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+                webm: video.canPlayType('video/webm; codecs="vp8, vorbis"'),
+                ogg: video.canPlayType('video/ogg; codecs="theora"')
+            };
         }
 
-        // Handle folder selection
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Update status with appropriate styling
+        function updateStatus(message, isError = false) {
+            status.textContent = message;
+            status.className = isError ? 'error' : 'info';
+        }
+
+        // Display supported formats
+        const supportedFormats = checkVideoSupport();
+        let supportedFormatsMsg = 'Supported formats: ';
+        if (supportedFormats.mp4) supportedFormatsMsg += 'MP4 (H.264) ';
+        if (supportedFormats.webm) supportedFormatsMsg += 'WebM (VP8/VP9) ';
+        if (supportedFormats.ogg) supportedFormatsMsg += 'Ogg (Theora) ';
+        updateStatus(supportedFormatsMsg);
+
+        // Video file extensions
+        const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.m4v'];
+
         folderInput.addEventListener('change', (e) => {
-            // Clear previous list
             videoList.innerHTML = '';
-            
-            // Filter for video files
             const files = Array.from(e.target.files).filter(file => 
-                videoFormats.some(format => file.name.toLowerCase().endsWith(format))
+                videoExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
             );
 
-            // Store the folder path
+            // Show current folder
             if (files.length > 0) {
                 const folderPath = files[0].webkitRelativePath.split('/')[0];
+                currentFolder.textContent = `Current folder: ${folderPath}`;
                 localStorage.setItem('lastVideoFolder', folderPath);
             }
-
-            // Create video list
-            files.forEach(file => {
+            
+            files.forEach((file) => {
                 const div = document.createElement('div');
                 div.className = 'video-item';
-                div.textContent = file.name;
+                
+                // Create name and info elements
+                const nameDiv = document.createElement('div');
+                nameDiv.textContent = file.name;
+                
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'video-info';
+                infoDiv.textContent = `Size: ${formatFileSize(file.size)} | Type: ${file.type}`;
+                
+                div.appendChild(nameDiv);
+                div.appendChild(infoDiv);
+                
                 div.addEventListener('click', () => {
-                    const url = URL.createObjectURL(file);
-                    videoPlayer.src = url;
-                    videoPlayer.play();
+                    // Remove active class from previous selection
+                    const active = document.querySelector('.video-item.active');
+                    if (active) active.classList.remove('active');
+                    
+                    // Add active class to current selection
+                    div.classList.add('active');
+                    
+                    updateStatus(`Loading ${file.name}...`);
+                    
+                    try {
+                        const url = URL.createObjectURL(file);
+                        videoPlayer.src = url;
+                        
+                        videoPlayer.onloadedmetadata = () => {
+                            updateStatus(`Playing ${file.name} (${Math.round(videoPlayer.duration)}s)`);
+                            videoPlayer.play().catch(err => {
+                                console.error('Error playing video:', err);
+                                updateStatus(`Error playing ${file.name}: ${err.message}`, true);
+                            });
+                        };
+
+                        // Clean up previous object URL
+                        const oldUrl = videoPlayer.dataset.objectUrl;
+                        if (oldUrl) {
+                            URL.revokeObjectURL(oldUrl);
+                        }
+                        videoPlayer.dataset.objectUrl = url;
+
+                    } catch (err) {
+                        console.error('Error:', err);
+                        updateStatus(`Error processing ${file.name}: ${err.message}`, true);
+                    }
                 });
+                
                 videoList.appendChild(div);
             });
+
+            updateStatus(`${files.length} videos found in folder. Click a video to play.`);
         });
 
-        // Clean up object URLs when source changes
-        videoPlayer.addEventListener('loadstart', () => {
-            const oldUrl = videoPlayer.src;
-            if (oldUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(oldUrl);
+        // Handle video errors
+        videoPlayer.addEventListener('error', (e) => {
+            console.error('Video error:', videoPlayer.error);
+            updateStatus(`Error playing video: ${videoPlayer.error.message}`, true);
+        });
+
+        // Clean up object URLs when leaving the page
+        window.addEventListener('beforeunload', () => {
+            const url = videoPlayer.dataset.objectUrl;
+            if (url) {
+                URL.revokeObjectURL(url);
             }
         });
+
+        // Try to display last used folder from localStorage
+        const lastFolder = localStorage.getItem('lastVideoFolder');
+        if (lastFolder) {
+            currentFolder.textContent = `Last folder: ${lastFolder}`;
+        }
     </script>
 </body>
 </html>
