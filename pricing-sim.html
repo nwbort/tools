@@ -181,11 +181,11 @@ class PricingAgent {
             const baseCheatProb = this.initialCheatRate * timeFactor;
             const cheatProbability = Math.min(baseCheatProb, Math.max(0.01, (priceDifferential / 500) * timeFactor));
             
-            if (Math.random() < cheatProbability) {
-                const undercutAmount = 5 + Math.random() * 10;
+            if (minCompetitorPrice < this.price - 10) {
+                this.price = Math.max(this.cost + 1, minCompetitorPrice - 10);
+            } else if (Math.random() < cheatProbability) {
+                const undercutAmount = 2 + Math.random() * 8;
                 this.price = Math.max(this.cost + 1, minCompetitorPrice - undercutAmount);
-            } else if (minCompetitorPrice < this.price - 20) {
-                this.price = Math.max(this.cost + 10, minCompetitorPrice + 2);
             } else {
                 const targetPrice = Math.min(200, averageCompetitorPrice * 1.02);
                 this.price = this.price * 0.95 + targetPrice * 0.05;
