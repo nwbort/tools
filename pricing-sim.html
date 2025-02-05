@@ -167,10 +167,11 @@ class PricingAgent {
         this.isCoordinated = isCoordinated;
         this.cost = 50;
         this.timeSteps = 0;
-        this.initialCheatRate = 0.2;
+        this.initialCheatRate = 0.4;
         this.retaliationPeriods = 0;
         this.retaliationPrice = null;
         this.RETALIATION_DURATION = 10;
+        this.preRetaliationPrice = null;
 
     }
 
@@ -186,17 +187,18 @@ class PricingAgent {
         const cheatProbability = Math.min(baseCheatProb, Math.max(0.01, (priceDifferential / 500) * timeFactor));
         
         // Check if we're in retaliation phase
-        if (this.retaliationPeriods > 1) {
+        if (this.retaliationPeriods > 5) {
             this.price = Math.min(minCompetitorPrice, this.retaliationPrice);
             this.retaliationPeriods--;
-        } else if (this.retaliationPeriods === 1) {
-            this.price = Math.min(minCompetitorPrice, this.retaliationPrice) + 5;
+        } else if (this.retaliationPeriods > 0) {
+            this.price = this.preRetaliationPrice;
             this.retaliationPeriods--;
         }
         // Check if we should enter retaliation phase
         else if (minCompetitorPrice < this.price - 10 && this.retaliationPeriods === 0) {
             this.retaliationPeriods = this.RETALIATION_DURATION;
-            this.retaliationPrice = Math.max(this.cost + 1, minCompetitorPrice - 10);
+            this.retaliationPrice = Math.max(this.cost + 1, minCompetitorPrice - 5);
+            this.preRetaliationPrice = minCompetitorPrice;
             this.price = this.retaliationPrice;
         }
         // Normal coordinated behavior
