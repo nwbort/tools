@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Market Outcome Comparison</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .simulation-container {
+            margin-bottom: 20px;
+        }
+        .markets {
+    display: flex;
+    gap: 20px;
+    font-size: 0.9em;
+}
+.market {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #eee;
+    border-radius: 5px;
+}
+.agent {
+    padding: 8px;
+    margin: 3px 0;
+    background: #f5f5f5;
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+h2 {
+    font-size: 1.2em;
+    margin: 10px 0;
+}
+h3 {
+    font-size: 1em;
+    margin: 5px 0;
+}        
+.controls {
+            margin: 20px 0;
+        }
+        canvas {
+            border: 1px solid #eee;
+            margin: 10px 0;
+            width: 100%;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .metrics {
+            margin-top: 10px;
+            padding: 8px;
+            background: #f0f0f0;
+            border-radius: 5px;
+        }
+        .price-display {
+            font-size: 0.9em;
+            margin: 3px 0;
+        }
+
+    </style>
+</head>
+<body>
+    <h1>Market Outcome Comparison: Competitive vs. Coordinated Pricing</h1>
+    
+    <div class="controls">
+        <button id="startBtn">Start Simulation</button>
+        <button id="resetBtn">Reset</button>
+    </div>
+
+    <canvas id="combinedChart" width="1000" height="400"></canvas>
+
+    <div class="markets">
+        <div class="market">
+            <h2>Competitive Market</h2>
+            <div id="competitive-agents">
+                <div class="metrics">
+                    <div>Average Market Price: $<span id="comp-avg-price">10.00</span></div>
+                    <div>Consumer Surplus: $<span id="comp-consumer">0.00</span></div>
+                    <div>Total Industry Profit: $<span id="comp-total-profit">0.00</span></div>
+                </div>
+                <div class="agent">
+                    <h3>Agent 1</h3>
+                    <div class="price-display">Price: $<span id="comp-price1">10.00</span></div>
+                    <div>Profit: $<span id="comp-profit1">0.00</span></div>
+                </div>
+                <div class="agent">
+                    <h3>Agent 2</h3>
+                    <div class="price-display">Price: $<span id="comp-price2">10.00</span></div>
+                    <div>Profit: $<span id="comp-profit2">0.00</span></div>
+                </div>
+                <div class="agent">
+                    <h3>Agent 3</h3>
+                    <div class="price-display">Price: $<span id="comp-price3">10.00</span></div>
+                    <div>Profit: $<span id="comp-profit3">0.00</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="market">
+            <h2>Coordinated Market</h2>
+            <div id="coordinated-agents">
+                <div class="metrics">
+                    <div>Average Market Price: $<span id="coord-avg-price">10.00</span></div>
+                    <div>Consumer Surplus: $<span id="coord-consumer">0.00</span></div>
+                    <div>Total Industry Profit: $<span id="coord-total-profit">0.00</span></div>
+                </div>
+                <div class="agent">
+                    <h3>Agent 1</h3>
+                    <div class="price-display">Price: $<span id="coord-price1">10.00</span></div>
+                    <div>Profit: $<span id="coord-profit1">0.00</span></div>
+                </div>
+                <div class="agent">
+                    <h3>Agent 2</h3>
+                    <div class="price-display">Price: $<span id="coord-price2">10.00</span></div>
+                    <div>Profit: $<span id="coord-profit2">0.00</span></div>
+                </div>
+                <div class="agent">
+                    <h3>Agent 3</h3>
+                    <div class="price-display">Price: $<span id="coord-price3">10.00</span></div>
+                    <div>Profit: $<span id="coord-profit3">0.00</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+// Updated PricingAgent class
+class PricingAgent {
+    constructor(id, initialPrice, isCoordinated) {
+        this.id = id;
+        this.price = initialPrice;
+        this.profit = 0;
+        this.learningRate = isCoordinated ? 0.15 : 0.2;
+        this.priceHistory = [initialPrice];
+        this.profitHistory = [0];
+        this.lastAction = 0;
+        this.isCoordinated = isCoordinated;
+        this.cost = 50;
+        this.timeSteps = 0;
+        this.initialCheatRate = 0.1;
+    }
+
+    updatePrice(otherPrices, marketConditions) {
+        const averageCompetitorPrice = otherPrices.reduce((a, b) => a + b, 0) / otherPrices.length;
+        const minCompetitorPrice = Math.min(...otherPrices);
+        
+        if (this.isCoordinated) {
+            this.timeSteps++;
+            const timeFactor = Math.exp(-this.timeSteps / 50);
+            const priceDifferential = averageCompetitorPrice - this.price;
+            const baseCheatProb = this.initialCheatRate * timeFactor;
+            const cheatProbability = Math.min(baseCheatProb, Math.max(0.01, (priceDifferential / 500) * timeFactor));
+            
+            if (Math.random() < cheatProbability) {
+                const undercutAmount = 5 + Math.random() * 10;
+                this.price = Math.max(this.cost + 1, minCompetitorPrice - undercutAmount);
+            } else if (minCompetitorPrice < this.price - 20) {
+                this.price = Math.max(this.cost + 10, minCompetitorPrice + 2);
+            } else {
+                const targetPrice = Math.min(200, averageCompetitorPrice * 1.02);
+                this.price = this.price * 0.95 + targetPrice * 0.05;
+            }
+        } else {
+            const priceDiff = this.price - averageCompetitorPrice;
+            if (this.profit < this.profitHistory[this.profitHistory.length - 1]) {
+                this.lastAction = -this.lastAction;
+            } else {
+                this.lastAction = priceDiff > 0 ? -1 : 1;
+            }
+            const priceChange = this.lastAction * this.learningRate * Math.random();
+            this.price = Math.max(this.cost + 1, Math.min(200, this.price + priceChange));
+        }
+
+        // Calculate market share based on relative prices
+        const allPrices = [...otherPrices, this.price];
+        const priceSum = allPrices.reduce((a, b) => a + Math.exp(-b/50), 0);
+        const marketShare = Math.exp(-this.price/50) / priceSum;
+
+        // Calculate total market demand (downward sloping demand curve)
+        const avgMarketPrice = (this.price + otherPrices.reduce((a, b) => a + b, 0)) / (otherPrices.length + 1);
+        const baselineDemand = 200; // Maximum demand at price = 0
+        const priceElasticity = 0.5; // How sensitive demand is to price
+        const totalMarketDemand = baselineDemand * Math.exp(-priceElasticity * avgMarketPrice/100);
+
+        // Calculate profit
+        this.profit = marketShare * (this.price - this.cost) * totalMarketDemand;
+        this.priceHistory.push(this.price);
+        this.profitHistory.push(this.profit);
+
+        return {
+            marketShare,
+            totalMarketDemand
+        };
+    }
+}
+
+// Update the calculateMarketMetrics function
+function calculateMarketMetrics(agents) {
+    const avgPrice = agents.reduce((sum, agent) => sum + agent.price, 0) / agents.length;
+    const totalProfit = agents.reduce((sum, agent) => sum + agent.profit, 0);
+    
+    // Calculate consumer surplus with downward sloping demand
+    const baselineDemand = 200;
+    const priceElasticity = 0.5;
+    const actualDemand = baselineDemand * Math.exp(-priceElasticity * avgPrice/100);
+    const maxWTP = 200; // Maximum willingness to pay
+    const consumerSurplus = (maxWTP - avgPrice) * actualDemand * 0.5;
+    
+    return { 
+        avgPrice, 
+        totalProfit, 
+        consumerSurplus,
+        totalDemand: actualDemand 
+    };
+}
+        // Initialize two sets of agents
+        const competitiveAgents = [
+            new PricingAgent(1, 100, false),
+            new PricingAgent(2, 100, false),
+            new PricingAgent(3, 100, false)
+        ];
+
+        const coordinatedAgents = [
+            new PricingAgent(1, 100, true),
+            new PricingAgent(2, 100, true),
+            new PricingAgent(3, 100, true)
+        ];
+
+        let isRunning = false;
+        let animationFrame;
+
+        // Keep rolling arrays for display smoothing
+        const displayBuffer = {
+            compAvgPrice: Array(10).fill(100),
+            compProfit: Array(10).fill(0),
+            compSurplus: Array(10).fill(0),
+            coordAvgPrice: Array(10).fill(100),
+            coordProfit: Array(10).fill(0),
+            coordSurplus: Array(10).fill(0)
+        };
+
+        function getSmoothedValue(newValue, buffer) {
+            buffer.push(newValue);
+            buffer.shift();
+            return buffer.reduce((a, b) => a + b, 0) / buffer.length;
+        }
+
+        function calculateMarketMetrics(agents) {
+            const avgPrice = agents.reduce((sum, agent) => sum + agent.price, 0) / agents.length;
+            const totalProfit = agents.reduce((sum, agent) => sum + agent.profit, 0);
+            const maxPrice = 200; // Maximum willingness to pay
+            const consumerSurplus = (maxPrice - avgPrice) * 100 * 0.5; // Simplified consumer surplus calculation
+            return { avgPrice, totalProfit, consumerSurplus };
+        }
+
+        function updateDisplay() {
+            const marketDemand = 100; // Base market size
+
+            // Update competitive market
+            competitiveAgents.forEach((agent, i) => {
+                const otherPrices = competitiveAgents
+                    .filter(a => a.id !== agent.id)
+                    .map(a => a.price);
+                agent.updatePrice(otherPrices, marketDemand);
+                
+                document.getElementById(`comp-price${i+1}`).textContent = agent.price.toFixed(0);
+                document.getElementById(`comp-profit${i+1}`).textContent = agent.profit.toFixed(0);
+            });
+
+            // Update coordinated market
+            coordinatedAgents.forEach((agent, i) => {
+                const otherPrices = coordinatedAgents
+                    .filter(a => a.id !== agent.id)
+                    .map(a => a.price);
+                agent.updatePrice(otherPrices, marketDemand);
+                
+                document.getElementById(`coord-price${i+1}`).textContent = agent.price.toFixed(0);
+                document.getElementById(`coord-profit${i+1}`).textContent = agent.profit.toFixed(0);
+            });
+
+            // Update market metrics
+            const compMetrics = calculateMarketMetrics(competitiveAgents);
+            const coordMetrics = calculateMarketMetrics(coordinatedAgents);
+
+            // Smooth display values
+            const smoothedCompPrice = getSmoothedValue(compMetrics.avgPrice, displayBuffer.compAvgPrice);
+            const smoothedCompProfit = getSmoothedValue(compMetrics.totalProfit, displayBuffer.compProfit);
+            const smoothedCompSurplus = getSmoothedValue(compMetrics.consumerSurplus, displayBuffer.compSurplus);
+            
+            const smoothedCoordPrice = getSmoothedValue(coordMetrics.avgPrice, displayBuffer.coordAvgPrice);
+            const smoothedCoordProfit = getSmoothedValue(coordMetrics.totalProfit, displayBuffer.coordProfit);
+            const smoothedCoordSurplus = getSmoothedValue(coordMetrics.consumerSurplus, displayBuffer.coordSurplus);
+
+            document.getElementById('comp-avg-price').textContent = smoothedCompPrice.toFixed(0);
+            document.getElementById('comp-consumer').textContent = smoothedCompSurplus.toFixed(0);
+            document.getElementById('comp-total-profit').textContent = smoothedCompProfit.toFixed(0);
+
+            document.getElementById('coord-avg-price').textContent = smoothedCoordPrice.toFixed(0);
+            document.getElementById('coord-consumer').textContent = smoothedCoordSurplus.toFixed(0);
+            document.getElementById('coord-total-profit').textContent = smoothedCoordProfit.toFixed(0);
+        }
+
+        function drawChart() {
+    const canvas = document.getElementById('combinedChart');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw grid
+    ctx.strokeStyle = '#eee';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for(let i = 0; i < canvas.width; i += 50) {
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+    }
+    for(let i = 0; i < canvas.height; i += 50) {
+        ctx.moveTo(0, i);
+        ctx.lineTo(canvas.width, i);
+    }
+    ctx.stroke();
+
+    // Calculate average prices for both markets
+    const compPrices = competitiveAgents.map(agent => agent.priceHistory);
+    const coordPrices = coordinatedAgents.map(agent => agent.priceHistory);
+    
+    const compAvgPrices = compPrices[0].map((_, i) => 
+        compPrices.reduce((sum, history) => sum + history[i], 0) / compPrices.length
+    );
+    
+    const coordAvgPrices = coordPrices[0].map((_, i) => 
+        coordPrices.reduce((sum, history) => sum + history[i], 0) / coordPrices.length
+    );
+
+    const maxHistory = Math.max(compAvgPrices.length, coordAvgPrices.length);
+    const xScale = canvas.width / Math.max(100, maxHistory);
+    const yScale = canvas.height / 200;
+
+    // Draw competitive market average (blue)
+    ctx.strokeStyle = '#2196F3';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    compAvgPrices.forEach((price, i) => {
+        const x = i * xScale;
+        const y = canvas.height - (price * yScale);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Draw coordinated market average (red)
+    ctx.strokeStyle = '#FF4444';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    coordAvgPrices.forEach((price, i) => {
+        const x = i * xScale;
+        const y = canvas.height - (price * yScale);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Add legend
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#2196F3';
+    ctx.fillRect(10, 10, 20, 10);
+    ctx.fillStyle = '#000';
+    ctx.fillText('Competitive', 35, 20);
+    
+    ctx.fillStyle = '#FF4444';
+    ctx.fillRect(10, 30, 20, 10);
+    ctx.fillStyle = '#000';
+    ctx.fillText('Coordinated', 35, 40);
+}
+        function simulate() {
+            if (!isRunning) return;
+
+            updateDisplay();
+            drawChart();
+
+            animationFrame = requestAnimationFrame(simulate);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            if (!isRunning) {
+                isRunning = true;
+                simulate();
+                document.getElementById('startBtn').textContent = 'Pause';
+            } else {
+                isRunning = false;
+                cancelAnimationFrame(animationFrame);
+                document.getElementById('startBtn').textContent = 'Start Simulation';
+            }
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            isRunning = false;
+            cancelAnimationFrame(animationFrame);
+            document.getElementById('startBtn').textContent = 'Start Simulation';
+            
+            [...competitiveAgents, ...coordinatedAgents].forEach(agent => {
+                agent.price = 100;
+                agent.profit = 0;
+                agent.priceHistory = [100];
+                agent.profitHistory = [0];
+                agent.lastAction = 0;
+            });
+            
+            updateDisplay();
+            drawChart();
+        });
+
+        // Initial draw
+        updateDisplay();
+        drawChart();
+    </script>
+</body>
+</html>
