@@ -168,60 +168,77 @@ class PricingAgent {
         this.cost = 50;
         this.timeSteps = 0;
         this.initialCheatRate = 0.2;
+        this.retaliationPeriods = 0;
+        this.retaliationPrice = null;
+        this.RETALIATION_DURATION = 10;
+
     }
 
     updatePrice(otherPrices, marketConditions) {
-        const averageCompetitorPrice = otherPrices.reduce((a, b) => a + b, 0) / otherPrices.length;
-        const minCompetitorPrice = Math.min(...otherPrices);
+    const averageCompetitorPrice = otherPrices.reduce((a, b) => a + b, 0) / otherPrices.length;
+    const minCompetitorPrice = Math.min(...otherPrices);
+    
+    if (this.isCoordinated) {
+        this.timeSteps++;
+        const timeFactor = Math.exp(-this.timeSteps / sliderValue);
+        const priceDifferential = averageCompetitorPrice - this.price;
+        const baseCheatProb = this.initialCheatRate * timeFactor;
+        const cheatProbability = Math.min(baseCheatProb, Math.max(0.01, (priceDifferential / 500) * timeFactor));
         
-        if (this.isCoordinated) {
-            this.timeSteps++;
-            const timeFactor = Math.exp(-this.timeSteps / sliderValue);
-            const priceDifferential = averageCompetitorPrice - this.price;
-            const baseCheatProb = this.initialCheatRate * timeFactor;
-            const cheatProbability = Math.min(baseCheatProb, Math.max(0.01, (priceDifferential / 500) * timeFactor));
-            
-            if (minCompetitorPrice < this.price - 10) {
-                this.price = Math.max(this.cost + 1, minCompetitorPrice - 10);
-            } else if (Math.random() < cheatProbability) {
-                const undercutAmount = 2 + Math.random() * 8;
-                this.price = Math.max(this.cost + 1, minCompetitorPrice - undercutAmount);
-            } else {
-                const targetPrice = Math.min(200, averageCompetitorPrice * 1.02);
-                this.price = this.price * 0.95 + targetPrice * 0.05;
-            }
-        } else {
-            const priceDiff = this.price - averageCompetitorPrice;
-            if (this.profit < this.profitHistory[this.profitHistory.length - 1]) {
-                this.lastAction = -this.lastAction;
-            } else {
-                this.lastAction = priceDiff > 0 ? -1 : 1;
-            }
-            const priceChange = this.lastAction * this.learningRate * Math.random();
-            this.price = Math.max(this.cost + 1, Math.min(200, this.price + priceChange));
+        // Check if we're in retaliation phase
+        if (this.retaliationPeriods > 1) {
+            this.price = Math.min(minCompetitorPrice, this.retaliationPrice);
+            this.retaliationPeriods--;
+        } else if (this.retaliationPeriods === 1) {
+            this.price = Math.min(minCompetitorPrice, this.retaliationPrice) + 5;
+            this.retaliationPeriods--;
         }
-
-        // Calculate market share based on relative prices
-        const allPrices = [...otherPrices, this.price];
-        const priceSum = allPrices.reduce((a, b) => a + Math.exp(-b/50), 0);
-        const marketShare = Math.exp(-this.price/50) / priceSum;
-
-        // Calculate total market demand (downward sloping demand curve)
-        const avgMarketPrice = (this.price + otherPrices.reduce((a, b) => a + b, 0)) / (otherPrices.length + 1);
-        const baselineDemand = 200; // Maximum demand at price = 0
-        const priceElasticity = 0.5; // How sensitive demand is to price
-        const totalMarketDemand = baselineDemand * Math.exp(-priceElasticity * avgMarketPrice/100);
-
-        // Calculate profit
-        this.profit = marketShare * (this.price - this.cost) * totalMarketDemand;
-        this.priceHistory.push(this.price);
-        this.profitHistory.push(this.profit);
-
-        return {
-            marketShare,
-            totalMarketDemand
-        };
+        // Check if we should enter retaliation phase
+        else if (minCompetitorPrice < this.price - 10 && this.retaliationPeriods === 0) {
+            this.retaliationPeriods = this.RETALIATION_DURATION;
+            this.retaliationPrice = Math.max(this.cost + 1, minCompetitorPrice - 10);
+            this.price = this.retaliationPrice;
+        }
+        // Normal coordinated behavior
+        else if (Math.random() < cheatProbability) {
+            const undercutAmount = 2 + Math.random() * 8;
+            this.price = Math.max(this.cost + 1, minCompetitorPrice - undercutAmount);
+        } else {
+            const targetPrice = Math.min(200, averageCompetitorPrice * 1.02);
+            this.price = this.price * 0.95 + targetPrice * 0.05;
+        }
+    } else {
+        const priceDiff = this.price - averageCompetitorPrice;
+        if (this.profit < this.profitHistory[this.profitHistory.length - 1]) {
+            this.lastAction = -this.lastAction;
+        } else {
+            this.lastAction = priceDiff > 0 ? -1 : 1;
+        }
+        const priceChange = this.lastAction * this.learningRate * Math.random();
+        this.price = Math.max(this.cost + 1, Math.min(200, this.price + priceChange));
     }
+
+    // Calculate market share based on relative prices
+    const allPrices = [...otherPrices, this.price];
+    const priceSum = allPrices.reduce((a, b) => a + Math.exp(-b/50), 0);
+    const marketShare = Math.exp(-this.price/50) / priceSum;
+
+    // Calculate total market demand (downward sloping demand curve)
+    const avgMarketPrice = (this.price + otherPrices.reduce((a, b) => a + b, 0)) / (otherPrices.length + 1);
+    const baselineDemand = 200; // Maximum demand at price = 0
+    const priceElasticity = 0.5; // How sensitive demand is to price
+    const totalMarketDemand = baselineDemand * Math.exp(-priceElasticity * avgMarketPrice/100);
+
+    // Calculate profit
+    this.profit = marketShare * (this.price - this.cost) * totalMarketDemand;
+    this.priceHistory.push(this.price);
+    this.profitHistory.push(this.profit);
+
+    return {
+        marketShare,
+        totalMarketDemand
+    };
+}
 }
 
 // Update the calculateMarketMetrics function
@@ -294,7 +311,7 @@ function calculateMarketMetrics(agents) {
                 agent.updatePrice(otherPrices, marketDemand);
                 
                 document.getElementById(`comp-price${i+1}`).textContent = agent.price.toFixed(0);
-                document.getElementById(`comp-profit${i+1}`).textContent = agent.profit.toFixed(0);
+                document.getElementById(`comp-profit${i+1}`).textContent = agent.profit.toFixed(0);                
             });
 
             // Update coordinated market
