@@ -74,6 +74,19 @@ h3 {
 
     <canvas id="combinedChart" width="1000" height="400"></canvas>
 
+    <div class="slider-container">
+        <label for="learningSlider">Learning rate: </label>
+        <input 
+            type="range" 
+            id="learningSlider" 
+            min="1" 
+            max="99" 
+            value="50"
+            step="1"
+        >
+        <span id="learningSliderValue">50</span>
+    </div>
+    
     <div class="markets">
         <div class="market">
             <h2>Competitive Market</h2>
@@ -129,6 +142,18 @@ h3 {
     </div>
 
     <script>
+const slider = document.getElementById('learningSlider');
+const output = document.getElementById('learningSliderValue');
+
+let sliderValue = 50;
+slider.oninput = function() {
+    output.innerHTML = this.value;
+}
+slider.addEventListener('change', function() {
+    sliderValue = 100 - parseFloat(this.value);
+});
+
+
 // Updated PricingAgent class
 class PricingAgent {
     constructor(id, initialPrice, isCoordinated) {
@@ -142,7 +167,7 @@ class PricingAgent {
         this.isCoordinated = isCoordinated;
         this.cost = 50;
         this.timeSteps = 0;
-        this.initialCheatRate = 0.1;
+        this.initialCheatRate = 0.2;
     }
 
     updatePrice(otherPrices, marketConditions) {
@@ -151,7 +176,7 @@ class PricingAgent {
         
         if (this.isCoordinated) {
             this.timeSteps++;
-            const timeFactor = Math.exp(-this.timeSteps / 50);
+            const timeFactor = Math.exp(-this.timeSteps / sliderValue);
             const priceDifferential = averageCompetitorPrice - this.price;
             const baseCheatProb = this.initialCheatRate * timeFactor;
             const cheatProbability = Math.min(baseCheatProb, Math.max(0.01, (priceDifferential / 500) * timeFactor));
@@ -306,76 +331,86 @@ function calculateMarketMetrics(agents) {
         }
 
         function drawChart() {
-    const canvas = document.getElementById('combinedChart');
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const canvas = document.getElementById('combinedChart');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw grid
-    ctx.strokeStyle = '#eee';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for(let i = 0; i < canvas.width; i += 50) {
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-    }
-    for(let i = 0; i < canvas.height; i += 50) {
-        ctx.moveTo(0, i);
-        ctx.lineTo(canvas.width, i);
-    }
-    ctx.stroke();
+            // Draw grid
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let i = 0; i < canvas.width; i += 50) {
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, canvas.height);
+            }
+            for(let i = 0; i < canvas.height; i += 50) {
+                ctx.moveTo(0, i);
+                ctx.lineTo(canvas.width, i);
+            }
+            ctx.stroke();
 
-    // Calculate average prices for both markets
-    const compPrices = competitiveAgents.map(agent => agent.priceHistory);
-    const coordPrices = coordinatedAgents.map(agent => agent.priceHistory);
-    
-    const compAvgPrices = compPrices[0].map((_, i) => 
-        compPrices.reduce((sum, history) => sum + history[i], 0) / compPrices.length
-    );
-    
-    const coordAvgPrices = coordPrices[0].map((_, i) => 
-        coordPrices.reduce((sum, history) => sum + history[i], 0) / coordPrices.length
-    );
+            const maxHistory = Math.max(
+                ...competitiveAgents.map(a => a.priceHistory.length),
+                ...coordinatedAgents.map(a => a.priceHistory.length)
+            );
+            const xScale = canvas.width / Math.max(100, maxHistory);
+            const yScale = canvas.height / 200;
 
-    const maxHistory = Math.max(compAvgPrices.length, coordAvgPrices.length);
-    const xScale = canvas.width / Math.max(100, maxHistory);
-    const yScale = canvas.height / 200;
+            // Draw competitive market prices (blue shades)
+            const blueShades = ['#2196F3', '#64B5F6', '#90CAF9'];
+            competitiveAgents.forEach((agent, idx) => {
+                ctx.strokeStyle = blueShades[idx];
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                agent.priceHistory.forEach((price, i) => {
+                    const x = i * xScale;
+                    const y = canvas.height - (price * yScale);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            });
 
-    // Draw competitive market average (blue)
-    ctx.strokeStyle = '#2196F3';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    compAvgPrices.forEach((price, i) => {
-        const x = i * xScale;
-        const y = canvas.height - (price * yScale);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+            // Draw coordinated market prices (red shades)
+            const redShades = ['#FF4444', '#FF7777', '#FFAAAA'];
+            coordinatedAgents.forEach((agent, idx) => {
+                ctx.strokeStyle = redShades[idx];
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                agent.priceHistory.forEach((price, i) => {
+                    const x = i * xScale;
+                    const y = canvas.height - (price * yScale);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            });
 
-    // Draw coordinated market average (red)
-    ctx.strokeStyle = '#FF4444';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    coordAvgPrices.forEach((price, i) => {
-        const x = i * xScale;
-        const y = canvas.height - (price * yScale);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+            // Add legend
+            ctx.font = '14px Arial';
+            let legendY = 10;
+            
+            // Competitive firms legend
+            competitiveAgents.forEach((_, idx) => {
+                ctx.fillStyle = blueShades[idx];
+                ctx.fillRect(10, legendY, 20, 10);
+                ctx.fillStyle = '#000';
+                ctx.fillText(`Competitive Firm ${idx + 1}`, 35, legendY + 10);
+                legendY += 20;
+            });
 
-    // Add legend
-    ctx.font = '14px Arial';
-    ctx.fillStyle = '#2196F3';
-    ctx.fillRect(10, 10, 20, 10);
-    ctx.fillStyle = '#000';
-    ctx.fillText('Competitive', 35, 20);
-    
-    ctx.fillStyle = '#FF4444';
-    ctx.fillRect(10, 30, 20, 10);
-    ctx.fillStyle = '#000';
-    ctx.fillText('Coordinated', 35, 40);
-}
+            legendY += 10; // Add some space between groups
+
+            // Coordinated firms legend
+            coordinatedAgents.forEach((_, idx) => {
+                ctx.fillStyle = redShades[idx];
+                ctx.fillRect(10, legendY, 20, 10);
+                ctx.fillStyle = '#000';
+                ctx.fillText(`Coordinated Firm ${idx + 1}`, 35, legendY + 10);
+                legendY += 20;
+            });
+        }
+
         function simulate() {
             if (!isRunning) return;
 
@@ -408,6 +443,7 @@ function calculateMarketMetrics(agents) {
                 agent.priceHistory = [100];
                 agent.profitHistory = [0];
                 agent.lastAction = 0;
+                agent.timeSteps = 0;
             });
             
             updateDisplay();
