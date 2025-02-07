@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Video Player</title>
+    <title>LVP - local video player</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -66,98 +66,90 @@
             background-color: #007bff;
             color: white;
         }
+        #reloadModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+        }
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .modal-content button {
+            font-size: 18px;
+            padding: 12px 24px;
+            margin-top: 20px;
+            width: 200px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Local Video Player</h1>
+        <h1>LVP - local video player</h1>
         <div class="controls">
-            <button onclick="selectFolder()">Select Folder</button>
+            <button onclick="selectFolder()">Select folder</button>
             <span id="currentFolder" style="margin-left: 10px; color: #666;"></span>
         </div>
         <video id="videoPlayer" controls></video>
         <div id="videoList"></div>
-        <div id="debugLog" style="margin-top: 20px; padding: 10px; background: #f8f8f8; font-family: monospace; font-size: 12px; white-space: pre-wrap;"></div>
+    </div>
+
+    <div id="reloadModal">
+        <div class="modal-content">
+            <h2>Reload folder</h2>
+            <button onclick="reloadSavedFolder()">Reload</button>
+        </div>
     </div>
 
     <script>
         const videoList = document.getElementById('videoList');
         const videoPlayer = document.getElementById('videoPlayer');
         const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.m4v'];
+        const reloadModal = document.getElementById('reloadModal');
         let db;
         
-        // Debug logging
-        function log(message, error = false) {
-            const debugLog = document.getElementById('debugLog');
-            const timestamp = new Date().toLocaleTimeString();
-            const logMessage = `${timestamp}: ${message}\n`;
-            debugLog.textContent = logMessage + debugLog.textContent;
-            if (error) {
-                console.error(message);
-            } else {
-                console.log(message);
-            }
-        }
-        
-        // Initialize IndexedDB
-        const dbName = 'VideoPlayerDB';
-        const storeName = 'handles';
-
         async function initDB() {
             return new Promise((resolve, reject) => {
-                const request = indexedDB.open(dbName, 1);
-                
+                const request = indexedDB.open('VideoPlayerDB', 1);
                 request.onerror = () => reject(request.error);
                 request.onsuccess = () => resolve(request.result);
-                
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
-                    if (!db.objectStoreNames.contains(storeName)) {
-                        db.createObjectStore(storeName);
+                    if (!db.objectStoreNames.contains('handles')) {
+                        db.createObjectStore('handles');
                     }
                 };
             });
         }
 
         async function storeFolderHandle(handle) {
-            log(`Storing handle: ${handle.name} (${handle.kind})`);
-            log(`Handle is directory: ${FileSystemDirectoryHandle.prototype.isPrototypeOf(handle)}`);
-            
-            const transaction = db.transaction(storeName, 'readwrite');
-            const store = transaction.objectStore(storeName);
+            const transaction = db.transaction('handles', 'readwrite');
+            const store = transaction.objectStore('handles');
             return new Promise((resolve, reject) => {
                 const request = store.put(handle, 'folderHandle');
-                request.onsuccess = () => {
-                    log('Successfully stored handle in IndexedDB');
-                    resolve();
-                };
-                request.onerror = (error) => {
-                    log(`Error storing handle: ${error}`, true);
-                    reject(request.error);
-                };
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
             });
         }
 
         async function getFolderHandle() {
-            log('Attempting to retrieve folder handle from IndexedDB');
-            const transaction = db.transaction(storeName, 'readonly');
-            const store = transaction.objectStore(storeName);
+            const transaction = db.transaction('handles', 'readonly');
+            const store = transaction.objectStore('handles');
             return new Promise((resolve, reject) => {
                 const request = store.get('folderHandle');
-                request.onsuccess = () => {
-                    const handle = request.result;
-                    if (handle) {
-                        log(`Retrieved handle: ${handle.name} (${handle.kind})`);
-                        log(`Handle is directory: ${FileSystemDirectoryHandle.prototype.isPrototypeOf(handle)}`);
-                    } else {
-                        log('No handle found in storage');
-                    }
-                    resolve(handle);
-                };
-                request.onerror = (error) => {
-                    log(`Error retrieving handle: ${error}`, true);
-                    reject(request.error);
-                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
             });
         }
 
@@ -183,24 +175,12 @@
 
         async function verifyPermission(fileHandle, mode = 'read') {
             try {
-                log(`Verifying permission for handle: ${fileHandle.name}`);
                 const options = { mode };
-                
-                log('Querying current permission state');
                 const state = await fileHandle.queryPermission(options);
-                log(`Current permission state: ${state}`);
-                
-                if (state === 'granted') {
-                    log('Permission already granted');
-                    return true;
-                }
-                
-                log('Requesting permission');
+                if (state === 'granted') return true;
                 const requestState = await fileHandle.requestPermission(options);
-                log(`Permission request result: ${requestState}`);
                 return requestState === 'granted';
             } catch (err) {
-                log(`Error verifying permission: ${err}`, true);
                 return false;
             }
         }
@@ -208,30 +188,23 @@
         async function loadFolder(handle, requireInteraction = false) {
             try {
                 if (requireInteraction) {
-                    // If we need user interaction, show a button to retry
-                    const currentFolderSpan = document.getElementById('currentFolder');
-                    currentFolderSpan.innerHTML = `
-                        <button onclick="reloadSavedFolder()" style="padding: 4px 8px; font-size: 12px;">
-                            Reload ${handle.name}
-                        </button>
-                    `;
+                    const modalTitle = document.querySelector('.modal-content h2');
+                    modalTitle.textContent = `Reload "${handle.name}"`;
+                    reloadModal.style.display = 'block';
                     return;
                 }
 
                 if (!await verifyPermission(handle)) {
-                    log('Permission denied or requires interaction');
                     await loadFolder(handle, true);
                     return;
                 }
 
-                // Update current folder display
+                reloadModal.style.display = 'none';
                 const currentFolderSpan = document.getElementById('currentFolder');
                 currentFolderSpan.textContent = `Current folder: ${handle.name}`;
 
-                // Clear existing list
                 videoList.innerHTML = '';
                 
-                // Get all files in the folder
                 const files = [];
                 for await (const entry of handle.values()) {
                     if (entry.kind === 'file' && 
@@ -240,7 +213,6 @@
                     }
                 }
 
-                // Sort and display files
                 files.sort((a, b) => a.name.localeCompare(b.name))
                      .forEach(createVideoItem);
                 
@@ -292,28 +264,6 @@
             videoList.appendChild(div);
         }
 
-        // Try to load the last used folder on startup
-        async function initialize() {
-            try {
-                log('Starting initialization');
-                db = await initDB();
-                log('IndexedDB initialized');
-                
-                const handle = await getFolderHandle();
-                log(`Retrieved handle from storage: ${handle ? 'yes' : 'no'}`);
-                
-                if (handle) {
-                    log('Attempting to load folder');
-                    await loadFolder(handle, true);
-                } else {
-                    log('No stored handle found');
-                }
-            } catch (err) {
-                log(`Error initializing: ${err}`, true);
-            }
-        }
-
-        // Function to reload the saved folder with user interaction
         async function reloadSavedFolder() {
             try {
                 const handle = await getFolderHandle();
@@ -321,11 +271,22 @@
                     await loadFolder(handle);
                 }
             } catch (err) {
-                log(`Error reloading folder: ${err}`, true);
+                console.error('Error reloading folder:', err);
             }
         }
 
-        // Start initialization
+        async function initialize() {
+            try {
+                db = await initDB();
+                const handle = await getFolderHandle();
+                if (handle) {
+                    await loadFolder(handle, true);
+                }
+            } catch (err) {
+                console.error('Error initializing:', err);
+            }
+        }
+
         initialize();
 
         videoPlayer.addEventListener('error', (e) => {
