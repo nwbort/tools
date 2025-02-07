@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LVP - local video player</title>
+    <title>Local Video Player</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -70,13 +70,14 @@
 </head>
 <body>
     <div class="container">
-        <h1>LVP - local video player</h1>
+        <h1>Local Video Player</h1>
         <div class="controls">
-            <button onclick="selectFolder()">Select folder</button>
+            <button onclick="selectFolder()">Select Folder</button>
             <span id="currentFolder" style="margin-left: 10px; color: #666;"></span>
         </div>
         <video id="videoPlayer" controls></video>
         <div id="videoList"></div>
+        <div id="debugLog" style="margin-top: 20px; padding: 10px; background: #f8f8f8; font-family: monospace; font-size: 12px; white-space: pre-wrap;"></div>
     </div>
 
     <script>
@@ -84,6 +85,19 @@
         const videoPlayer = document.getElementById('videoPlayer');
         const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.m4v'];
         let db;
+        
+        // Debug logging
+        function log(message, error = false) {
+            const debugLog = document.getElementById('debugLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `${timestamp}: ${message}\n`;
+            debugLog.textContent = logMessage + debugLog.textContent;
+            if (error) {
+                console.error(message);
+            } else {
+                console.log(message);
+            }
+        }
         
         // Initialize IndexedDB
         const dbName = 'VideoPlayerDB';
@@ -106,22 +120,44 @@
         }
 
         async function storeFolderHandle(handle) {
+            log(`Storing handle: ${handle.name} (${handle.kind})`);
+            log(`Handle is directory: ${FileSystemDirectoryHandle.prototype.isPrototypeOf(handle)}`);
+            
             const transaction = db.transaction(storeName, 'readwrite');
             const store = transaction.objectStore(storeName);
             return new Promise((resolve, reject) => {
                 const request = store.put(handle, 'folderHandle');
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    log('Successfully stored handle in IndexedDB');
+                    resolve();
+                };
+                request.onerror = (error) => {
+                    log(`Error storing handle: ${error}`, true);
+                    reject(request.error);
+                };
             });
         }
 
         async function getFolderHandle() {
+            log('Attempting to retrieve folder handle from IndexedDB');
             const transaction = db.transaction(storeName, 'readonly');
             const store = transaction.objectStore(storeName);
             return new Promise((resolve, reject) => {
                 const request = store.get('folderHandle');
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    const handle = request.result;
+                    if (handle) {
+                        log(`Retrieved handle: ${handle.name} (${handle.kind})`);
+                        log(`Handle is directory: ${FileSystemDirectoryHandle.prototype.isPrototypeOf(handle)}`);
+                    } else {
+                        log('No handle found in storage');
+                    }
+                    resolve(handle);
+                };
+                request.onerror = (error) => {
+                    log(`Error retrieving handle: ${error}`, true);
+                    reject(request.error);
+                };
             });
         }
 
@@ -147,16 +183,24 @@
 
         async function verifyPermission(fileHandle, mode = 'read') {
             try {
+                log(`Verifying permission for handle: ${fileHandle.name}`);
                 const options = { mode };
-                // Check if we already have permission
-                const state = await fileHandle.queryPermission(options);
-                if (state === 'granted') return true;
                 
-                // Request permission if we don't have it
+                log('Querying current permission state');
+                const state = await fileHandle.queryPermission(options);
+                log(`Current permission state: ${state}`);
+                
+                if (state === 'granted') {
+                    log('Permission already granted');
+                    return true;
+                }
+                
+                log('Requesting permission');
                 const requestState = await fileHandle.requestPermission(options);
+                log(`Permission request result: ${requestState}`);
                 return requestState === 'granted';
             } catch (err) {
-                console.error('Error verifying permission:', err);
+                log(`Error verifying permission: ${err}`, true);
                 return false;
             }
         }
@@ -239,13 +283,21 @@
         // Try to load the last used folder on startup
         async function initialize() {
             try {
+                log('Starting initialization');
                 db = await initDB();
+                log('IndexedDB initialized');
+                
                 const handle = await getFolderHandle();
+                log(`Retrieved handle from storage: ${handle ? 'yes' : 'no'}`);
+                
                 if (handle) {
+                    log('Attempting to load folder');
                     await loadFolder(handle);
+                } else {
+                    log('No stored handle found');
                 }
             } catch (err) {
-                console.error('Error initializing:', err);
+                log(`Error initializing: ${err}`, true);
             }
         }
 
