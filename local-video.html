@@ -205,13 +205,25 @@
             }
         }
 
-        async function loadFolder(handle) {
+        async function loadFolder(handle, requireInteraction = false) {
             try {
-                if (!await verifyPermission(handle)) {
-                    console.error('Permission denied');
+                if (requireInteraction) {
+                    // If we need user interaction, show a button to retry
+                    const currentFolderSpan = document.getElementById('currentFolder');
+                    currentFolderSpan.innerHTML = `
+                        <button onclick="reloadSavedFolder()" style="padding: 4px 8px; font-size: 12px;">
+                            Reload ${handle.name}
+                        </button>
+                    `;
                     return;
                 }
-                
+
+                if (!await verifyPermission(handle)) {
+                    log('Permission denied or requires interaction');
+                    await loadFolder(handle, true);
+                    return;
+                }
+
                 // Update current folder display
                 const currentFolderSpan = document.getElementById('currentFolder');
                 currentFolderSpan.textContent = `Current folder: ${handle.name}`;
@@ -292,12 +304,24 @@
                 
                 if (handle) {
                     log('Attempting to load folder');
-                    await loadFolder(handle);
+                    await loadFolder(handle, true);
                 } else {
                     log('No stored handle found');
                 }
             } catch (err) {
                 log(`Error initializing: ${err}`, true);
+            }
+        }
+
+        // Function to reload the saved folder with user interaction
+        async function reloadSavedFolder() {
+            try {
+                const handle = await getFolderHandle();
+                if (handle) {
+                    await loadFolder(handle);
+                }
+            } catch (err) {
+                log(`Error reloading folder: ${err}`, true);
             }
         }
 
