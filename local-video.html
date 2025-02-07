@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Video Player</title>
+    <title>LVP - local video player</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -70,20 +70,60 @@
 </head>
 <body>
     <div class="container">
-        <h1>Local Video Player</h1>
+        <h1>LVP - local video player</h1>
         <div class="controls">
-            <button onclick="document.getElementById('folderInput').click()">Select Folder</button>
-            <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none">
+            <button onclick="selectFolder()">Select folder</button>
+            <span id="currentFolder" style="margin-left: 10px; color: #666;"></span>
         </div>
         <video id="videoPlayer" controls></video>
         <div id="videoList"></div>
     </div>
 
     <script>
-        const folderInput = document.getElementById('folderInput');
         const videoList = document.getElementById('videoList');
         const videoPlayer = document.getElementById('videoPlayer');
         const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.m4v'];
+        let db;
+        
+        // Initialize IndexedDB
+        const dbName = 'VideoPlayerDB';
+        const storeName = 'handles';
+
+        async function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(dbName, 1);
+                
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(storeName)) {
+                        db.createObjectStore(storeName);
+                    }
+                };
+            });
+        }
+
+        async function storeFolderHandle(handle) {
+            const transaction = db.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            return new Promise((resolve, reject) => {
+                const request = store.put(handle, 'folderHandle');
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function getFolderHandle() {
+            const transaction = db.transaction(storeName, 'readonly');
+            const store = transaction.objectStore(storeName);
+            return new Promise((resolve, reject) => {
+                const request = store.get('folderHandle');
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
 
         function formatFileSize(bytes) {
             if (bytes === 0) return '0 Bytes';
@@ -93,57 +133,124 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
-        folderInput.addEventListener('change', (e) => {
-            videoList.innerHTML = '';
-            const files = Array.from(e.target.files)
-                .filter(file => 
-                    videoExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
-                )
-                .sort((a, b) => a.name.localeCompare(b.name));
-            
-            files.forEach((file) => {
-                const div = document.createElement('div');
-                div.className = 'video-item';
-                
-                const nameDiv = document.createElement('div');
-                nameDiv.textContent = file.name;
-                
-                const infoDiv = document.createElement('div');
-                infoDiv.className = 'video-info';
-                infoDiv.textContent = `Size: ${formatFileSize(file.size)} | Type: ${file.type}`;
-                
-                div.appendChild(nameDiv);
-                div.appendChild(infoDiv);
-                
-                div.addEventListener('click', () => {
-                    const active = document.querySelector('.video-item.active');
-                    if (active) active.classList.remove('active');
-                    div.classList.add('active');
-                    
-                    try {
-                        const url = URL.createObjectURL(file);
-                        videoPlayer.src = url;
-                        
-                        videoPlayer.onloadedmetadata = () => {
-                            videoPlayer.play().catch(err => {
-                                console.error('Error playing video:', err);
-                            });
-                        };
-
-                        const oldUrl = videoPlayer.dataset.objectUrl;
-                        if (oldUrl) {
-                            URL.revokeObjectURL(oldUrl);
-                        }
-                        videoPlayer.dataset.objectUrl = url;
-
-                    } catch (err) {
-                        console.error('Error:', err);
-                    }
+        async function selectFolder() {
+            try {
+                const handle = await window.showDirectoryPicker({
+                    mode: 'read'
                 });
+                await storeFolderHandle(handle);
+                await loadFolder(handle);
+            } catch (err) {
+                console.error('Error selecting folder:', err);
+            }
+        }
+
+        async function verifyPermission(fileHandle, mode = 'read') {
+            try {
+                const options = { mode };
+                // Check if we already have permission
+                const state = await fileHandle.queryPermission(options);
+                if (state === 'granted') return true;
                 
-                videoList.appendChild(div);
+                // Request permission if we don't have it
+                const requestState = await fileHandle.requestPermission(options);
+                return requestState === 'granted';
+            } catch (err) {
+                console.error('Error verifying permission:', err);
+                return false;
+            }
+        }
+
+        async function loadFolder(handle) {
+            try {
+                if (!await verifyPermission(handle)) {
+                    console.error('Permission denied');
+                    return;
+                }
+                
+                // Update current folder display
+                const currentFolderSpan = document.getElementById('currentFolder');
+                currentFolderSpan.textContent = `Current folder: ${handle.name}`;
+
+                // Clear existing list
+                videoList.innerHTML = '';
+                
+                // Get all files in the folder
+                const files = [];
+                for await (const entry of handle.values()) {
+                    if (entry.kind === 'file' && 
+                        videoExtensions.some(ext => entry.name.toLowerCase().endsWith(ext))) {
+                        files.push(await entry.getFile());
+                    }
+                }
+
+                // Sort and display files
+                files.sort((a, b) => a.name.localeCompare(b.name))
+                     .forEach(createVideoItem);
+                
+            } catch (err) {
+                console.error('Error loading folder:', err);
+            }
+        }
+
+        function createVideoItem(file) {
+            const div = document.createElement('div');
+            div.className = 'video-item';
+            
+            const nameDiv = document.createElement('div');
+            nameDiv.textContent = file.name;
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'video-info';
+            infoDiv.textContent = `Size: ${formatFileSize(file.size)} | Type: ${file.type}`;
+            
+            div.appendChild(nameDiv);
+            div.appendChild(infoDiv);
+            
+            div.addEventListener('click', () => {
+                const active = document.querySelector('.video-item.active');
+                if (active) active.classList.remove('active');
+                div.classList.add('active');
+                
+                try {
+                    const url = URL.createObjectURL(file);
+                    videoPlayer.src = url;
+                    
+                    videoPlayer.onloadedmetadata = () => {
+                        videoPlayer.play().catch(err => {
+                            console.error('Error playing video:', err);
+                        });
+                    };
+
+                    const oldUrl = videoPlayer.dataset.objectUrl;
+                    if (oldUrl) {
+                        URL.revokeObjectURL(oldUrl);
+                    }
+                    videoPlayer.dataset.objectUrl = url;
+
+                } catch (err) {
+                    console.error('Error:', err);
+                }
             });
-        });
+            
+            videoList.appendChild(div);
+        }
+
+        // Try to load the last used folder on startup
+        async function initialize() {
+            try {
+                db = await initDB();
+                const handle = await getFolderHandle();
+                if (handle) {
+                    await loadFolder(handle);
+                }
+            } catch (err) {
+                console.error('Error initializing:', err);
+            }
+        }
+
+        // Start initialization
+        initialize();
 
         videoPlayer.addEventListener('error', (e) => {
             console.error('Video error:', videoPlayer.error);
