@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPX Route Merger</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GPX Route Merger</h1>
+        <div class="input-group">
+            <label for="file1">First GPX File:</label>
+            <input type="file" id="file1" accept=".gpx">
+        </div>
+        <div class="input-group">
+            <label for="file2">Second GPX File:</label>
+            <input type="file" id="file2" accept=".gpx">
+        </div>
+        <button id="mergeButton" disabled>Merge Routes</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        let gpxFile1Content = null;
+        let gpxFile2Content = null;
+
+        function updateMergeButtonState() {
+            const mergeButton = document.getElementById('mergeButton');
+            mergeButton.disabled = !(gpxFile1Content && gpxFile2Content);
+        }
+
+        function handleFileUpload(file, isFirstFile) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const content = e.target.result;
+                    if (isFirstFile) {
+                        gpxFile1Content = content;
+                    } else {
+                        gpxFile2Content = content;
+                    }
+                    updateMergeButtonState();
+                    resolve();
+                };
+                reader.onerror = () => reject(new Error('Error reading file'));
+                reader.readAsText(file);
+            });
+        }
+
+        function mergeGPXFiles() {
+            try {
+                // Parse first GPX file
+                const parser = new DOMParser();
+                const gpx1 = parser.parseFromString(gpxFile1Content, "text/xml");
+                const gpx2 = parser.parseFromString(gpxFile2Content, "text/xml");
+
+                // Get track points from both files
+                const trackPoints1 = gpx1.querySelectorAll('trkpt');
+                const trackPoints2 = gpx2.querySelectorAll('trkpt');
+
+                // Create new GPX document
+                const mergedGpx = document.implementation.createDocument(null, "gpx", null);
+                const gpxRoot = mergedGpx.documentElement;
+                gpxRoot.setAttribute("version", "1.1");
+                gpxRoot.setAttribute("creator", "GPX Merger");
+                gpxRoot.setAttribute("xmlns", "http://www.topografix.com/GPX/1/1");
+
+                // Create track element
+                const trk = mergedGpx.createElement("trk");
+                const trkseg = mergedGpx.createElement("trkseg");
+
+                // Add points from first file
+                trackPoints1.forEach(point => {
+                    trkseg.appendChild(mergedGpx.importNode(point, true));
+                });
+
+                // Add points from second file
+                trackPoints2.forEach(point => {
+                    trkseg.appendChild(mergedGpx.importNode(point, true));
+                });
+
+                trk.appendChild(trkseg);
+                gpxRoot.appendChild(trk);
+
+                // Convert to string and create download
+                const serializer = new XMLSerializer();
+                const mergedGpxString = serializer.serializeToString(mergedGpx);
+                
+                const blob = new Blob([mergedGpxString], { type: 'application/gpx+xml' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'merged_route.gpx';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showStatus('Routes merged successfully!', 'success');
+            } catch (error) {
+                showStatus('Error merging GPX files: ' + error.message, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = type;
+        }
+
+        // Event Listeners
+        document.getElementById('file1').addEventListener('change', (e) => {
+            if (e.target.files[0]) {
+                handleFileUpload(e.target.files[0], true)
+                    .catch(error => showStatus(error.message, 'error'));
+            }
+        });
+
+        document.getElementById('file2').addEventListener('change', (e) => {
+            if (e.target.files[0]) {
+                handleFileUpload(e.target.files[0], false)
+                    .catch(error => showStatus(error.message, 'error'));
+            }
+        });
+
+        document.getElementById('mergeButton').addEventListener('click', mergeGPXFiles);
+    </script>
+</body>
+</html>
