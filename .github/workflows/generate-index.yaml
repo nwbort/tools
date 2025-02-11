@@ -26,7 +26,15 @@ jobs:
           echo '<ul>' >> index.html
           for file in $(find . -name "*.html" ! -name "index.html"); do
             name=$(basename "$file" .html)
-            echo "<li><a href=\"${file:2}\">$name</a></li>" >> index.html
+            # Extract description from meta tag
+            description=$(grep -o '<meta name="tool-description" content=".*">' "$file" | sed 's/<meta name="tool-description" content="\(.*\)">/\1/' || echo "")
+            
+            # Create list item with description if found
+            if [ -n "$description" ]; then
+              echo "<li><a href=\"${file:2}\"><span class=\"tool-name\">$name</span><span class=\"tool-description\">$description</span></a></li>" >> index.html
+            else
+              echo "<li><a href=\"${file:2}\">$name</a></li>" >> index.html
+            fi
           done
           echo '</ul>' >> index.html
           echo '</body>' >> index.html
