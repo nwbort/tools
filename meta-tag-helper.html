@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML Meta Description Tool</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --hover-color: #1d4ed8;
+            --background-color: #f8fafc;
+            --text-color: #1e293b;
+            --border-color: #e2e8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            padding: 2rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 2rem;
+            color: var(--primary-color);
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 4px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 1.5rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .drop-zone.drag-over {
+            border-color: var(--primary-color);
+            background-color: #eff6ff;
+        }
+
+        .drop-zone p {
+            margin: 0;
+            color: #64748b;
+        }
+
+        .drop-zone.has-file {
+            border-style: solid;
+            background-color: #f8fafc;
+        }
+
+        .file-info {
+            display: none;
+            margin-top: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .file-info.visible {
+            display: block;
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 0.875rem;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.2s ease;
+            width: 100%;
+        }
+
+        button:hover {
+            background-color: var(--hover-color);
+        }
+
+        button:disabled {
+            background-color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .error {
+            color: #dc2626;
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+            padding: 0.75rem;
+            background-color: #fee2e2;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        #downloadLink {
+            display: none;
+            margin-top: 1rem;
+            color: var(--primary-color);
+            text-decoration: none;
+            text-align: center;
+        }
+
+        #downloadLink:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>HTML Meta Description Tool</h1>
+    <div class="container">
+        <div class="drop-zone" id="dropZone">
+            <p>Drag and drop your HTML file here<br>or click to select</p>
+            <input type="file" id="htmlFile" accept=".html" hidden>
+            <div class="file-info" id="fileInfo"></div>
+        </div>
+        
+        <div class="input-group">
+            <label for="description">Tool description:</label>
+            <input type="text" id="description" placeholder="Enter a brief description of your tool">
+        </div>
+
+        <button id="processButton" onclick="processFile()" disabled>Add Description & Download</button>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        <a id="downloadLink" download="modified.html" href="#">Download modified file</a>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('htmlFile');
+        const fileInfo = document.getElementById('fileInfo');
+        const processButton = document.getElementById('processButton');
+
+        // Handle drag and drop events
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight() {
+            dropZone.classList.add('drag-over');
+        }
+
+        function unhighlight() {
+            dropZone.classList.remove('drag-over');
+        }
+
+        dropZone.addEventListener('drop', handleDrop, false);
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const file = dt.files[0];
+            
+            // Create a new FileList object
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            
+            // Set the file input's files
+            fileInput.files = dataTransfer.files;
+            
+            handleFile(file);
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            handleFile(file);
+        }
+
+        function handleFile(file) {
+            if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
+                dropZone.classList.add('has-file');
+                fileInfo.textContent = `Selected file: ${file.name}`;
+                fileInfo.classList.add('visible');
+                processButton.disabled = false;
+            } else {
+                showError('Please select an HTML file');
+                dropZone.classList.remove('has-file');
+                fileInfo.classList.remove('visible');
+                processButton.disabled = true;
+            }
+        }
+
+        async function processFile() {
+            const description = document.getElementById('description').value.trim();
+            const error = document.getElementById('error');
+            const downloadLink = document.getElementById('downloadLink');
+            
+            error.style.display = 'none';
+            downloadLink.style.display = 'none';
+            
+            if (!fileInput.files.length) {
+                showError('Please select an HTML file');
+                return;
+            }
+            
+            if (!description) {
+                showError('Please enter a description');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const content = await file.text();
+
+            // Check if file already has a tool-description meta tag
+            if (content.includes('name="tool-description"')) {
+                // Replace existing meta description
+                const modifiedContent = content.replace(
+                    /<meta name="tool-description" content="[^"]*">/,
+                    `<meta name="tool-description" content="Add tool description to html file">`
+                );
+                createDownloadableFile(modifiedContent, file.name);
+            } else {
+                // Add new meta description after the first meta tag or after <head>
+                let modifiedContent;
+                if (content.includes('<meta')) {
+                    modifiedContent = content.replace(
+                        /(<meta[^>]*>)/,
+                        `$1\n    <meta name="tool-description" content="${escapeHtml(description)}">`
+                    );
+                } else {
+                    modifiedContent = content.replace(
+                        /<head>/i,
+                        `<head>\n    <meta name="tool-description" content="${escapeHtml(description)}">`
+                    );
+                }
+                createDownloadableFile(modifiedContent, file.name);
+            }
+        }
+
+        function createDownloadableFile(content, originalFileName) {
+            const output = document.getElementById('output');
+            const downloadLink = document.getElementById('downloadLink');
+            
+            // Create download link
+            const blob = new Blob([content], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            downloadLink.href = url;
+            downloadLink.download = originalFileName;
+            downloadLink.textContent = `Download modified ${originalFileName}`;
+            downloadLink.style.display = 'block';
+        }
+
+        function showError(message) {
+            const error = document.getElementById('error');
+            error.textContent = `Error: ${message}`;
+            error.style.display = 'block';
+        }
+
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
