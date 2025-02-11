@@ -26,8 +26,8 @@ jobs:
           echo '<ul>' >> index.html
           for file in $(find . -name "*.html" ! -name "index.html"); do
             name=$(basename "$file" .html)
-            # Extract description from meta tag
-            description=$(grep -o '<meta name="tool-description" content=".*">' "$file" | sed 's/<meta name="tool-description" content="\(.*\)">/\1/' || echo "")
+            # Extract first meta description from head section only
+            description=$(awk '/<head>/{p=1;next} /<\/head>/{p=0} p{if (match($0, /<meta name="tool-description" content="([^"]*)">/,m)) {print m[1]; exit}}' "$file" || echo "")
             
             # Create list item with description if found
             if [ -n "$description" ]; then
