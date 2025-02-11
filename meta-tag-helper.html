@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTML Meta Description Tool</title>
+    <meta name="tool-description" content="Add tool description to HTML files">
+    <title>HTML meta description tool</title>
     <style>
         :root {
             --primary-color: #2563eb;
@@ -141,7 +142,7 @@
     </style>
 </head>
 <body>
-    <h1>HTML Meta Description Tool</h1>
+    <h1>HTML meta description tool</h1>
     <div class="container">
         <div class="drop-zone" id="dropZone">
             <p>Drag and drop your HTML file here<br>or click to select</p>
@@ -154,7 +155,7 @@
             <input type="text" id="description" placeholder="Enter a brief description of your tool">
         </div>
 
-        <button id="processButton" onclick="processFile()" disabled>Add Description & Download</button>
+        <button id="processButton" onclick="processFile()" disabled>Add description</button>
         
         <div id="error" class="error" style="display: none;"></div>
         <a id="downloadLink" download="modified.html" href="#">Download modified file</a>
@@ -255,7 +256,7 @@
                 // Replace existing meta description
                 const modifiedContent = content.replace(
                     /<meta name="tool-description" content="[^"]*">/,
-                    `<meta name="tool-description" content="Add tool description to html file">`
+                    `<meta name="tool-description" content="${escapeHtml(description)}">`
                 );
                 createDownloadableFile(modifiedContent, file.name);
             } else {
