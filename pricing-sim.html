@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Market Outcome Comparison</title>
+    <title>Market outcome comparison</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -65,7 +65,7 @@ h3 {
     </style>
 </head>
 <body>
-    <h1>Market Outcome Comparison: Competitive vs. Coordinated Pricing</h1>
+    <h1>Market outcome comparison: competitive vs. coordinated pricing</h1>
     
     <div class="controls">
         <button id="startBtn">Start Simulation</button>
@@ -89,12 +89,12 @@ h3 {
     
     <div class="markets">
         <div class="market">
-            <h2>Competitive Market</h2>
+            <h2>Competitive market</h2>
             <div id="competitive-agents">
                 <div class="metrics">
-                    <div>Average Market Price: $<span id="comp-avg-price">10.00</span></div>
-                    <div>Consumer Surplus: $<span id="comp-consumer">0.00</span></div>
-                    <div>Total Industry Profit: $<span id="comp-total-profit">0.00</span></div>
+                    <div>Average market price: $<span id="comp-avg-price">10.00</span></div>
+                    <div>Consumer surplus: $<span id="comp-consumer">0.00</span></div>
+                    <div>Total industry profit: $<span id="comp-total-profit">0.00</span></div>
                 </div>
                 <div class="agent">
                     <h3>Agent 1</h3>
@@ -115,12 +115,12 @@ h3 {
         </div>
 
         <div class="market">
-            <h2>Coordinated Market</h2>
+            <h2>Coordinated market</h2>
             <div id="coordinated-agents">
                 <div class="metrics">
-                    <div>Average Market Price: $<span id="coord-avg-price">10.00</span></div>
-                    <div>Consumer Surplus: $<span id="coord-consumer">0.00</span></div>
-                    <div>Total Industry Profit: $<span id="coord-total-profit">0.00</span></div>
+                    <div>Average market price: $<span id="coord-avg-price">10.00</span></div>
+                    <div>Consumer surplus: $<span id="coord-consumer">0.00</span></div>
+                    <div>Total industry profit: $<span id="coord-total-profit">0.00</span></div>
                 </div>
                 <div class="agent">
                     <h3>Agent 1</h3>
@@ -153,8 +153,6 @@ slider.addEventListener('change', function() {
     sliderValue = 100 - parseFloat(this.value);
 });
 
-
-// Updated PricingAgent class
 class PricingAgent {
     constructor(id, initialPrice, isCoordinated) {
         this.id = id;
