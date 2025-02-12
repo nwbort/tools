@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="tool-description" content="Change cover image of EPUB files">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB Cover Image Changer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            line-height: 1.5;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .preview-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        .preview-box {
+            text-align: center;
+        }
+        .preview {
+            max-width: 250px;
+            max-height: 350px;
+            margin: 0.5rem 0;
+            border: 2px solid #ddd;
+            display: none;
+        }
+        .arrow {
+            color: #2196F3;
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .file-status {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: #4CAF50;
+            display: none;
+        }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            padding: 2rem;
+            text-align: center;
+            margin: 1rem 0;
+            background: white;
+        }
+        .drop-zone.dragover {
+            border-color: #2196F3;
+            background: #e3f2fd;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .error {
+            color: #d32f2f;
+            margin: 1rem 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EPUB Cover Image Changer</h1>
+        
+        <div class="drop-zone" id="epubDropZone">
+            <p>Drop your EPUB file here or click to select</p>
+            <input type="file" id="epubInput" accept=".epub" style="display: none">
+        </div>
+
+        <div class="drop-zone" id="imageDropZone">
+            <p>Drop your new cover image here or click to select</p>
+            <input type="file" id="imageInput" accept="image/*" style="display: none">
+        </div>
+
+        <div class="preview-container">
+            <div class="preview-box">
+                <h3>Current Cover</h3>
+                <img id="currentCover" class="preview" alt="Current cover">
+                <div id="epubStatus" class="file-status">✓ EPUB uploaded</div>
+            </div>
+            <div class="arrow">➔</div>
+            <div class="preview-box">
+                <h3>New Cover</h3>
+                <img id="newCover" class="preview" alt="New cover">
+                <div id="imageStatus" class="file-status">✓ New cover uploaded</div>
+            </div>
+        </div>
+        
+        <div id="error" class="error"></div>
+        <button id="downloadBtn" disabled>Download Modified EPUB</button>
+    </div>
+
+    <script>
+        let epubFile = null;
+        let coverImage = null;
+
+        // Setup drag and drop zones
+        ['epubDropZone', 'imageDropZone'].forEach(id => {
+            const zone = document.getElementById(id);
+            const input = zone.querySelector('input');
+
+            zone.addEventListener('click', () => input.click());
+            
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.classList.add('dragover');
+            });
+
+            zone.addEventListener('dragleave', () => {
+                zone.classList.remove('dragover');
+            });
+
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                handleFile(file, id);
+            });
+
+            input.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                handleFile(file, id);
+            });
+        });
+
+        async function handleFile(file, dropZoneId) {
+            const error = document.getElementById('error');
+            error.style.display = 'none';
+
+            if (dropZoneId === 'epubDropZone') {
+                if (!file.name.endsWith('.epub')) {
+                    showError('Please select an EPUB file');
+                    return;
+                }
+                epubFile = file;
+                document.getElementById('epubStatus').style.display = 'block';
+                extractCurrentCover(file);
+            } else {
+                if (!file.type.startsWith('image/')) {
+                    showError('Please select an image file');
+                    return;
+                }
+                coverImage = file;
+                displayPreview(file, 'newCover');
+                document.getElementById('imageStatus').style.display = 'block';
+            }
+
+            updateDownloadButton();
+        }
+
+        let currentCoverPath = null;
+        let currentOpfPath = null;
+
+        async function extractCurrentCover(epubFile) {
+            try {
+                const epubContent = await epubFile.arrayBuffer();
+                const epub = await JSZip.loadAsync(epubContent);
+                
+                // First try to find container.xml
+                const containerFile = epub.file('META-INF/container.xml');
+                if (!containerFile) {
+                    throw new Error('Invalid EPUB: container.xml not found');
+                }
+
+                const containerXml = await containerFile.async('text');
+                const contentMatch = containerXml.match(/full-path="([^"]+)"/);
+                
+                if (!contentMatch) {
+                    throw new Error('Could not find OPF file path in container.xml');
+                }
+
+                currentOpfPath = contentMatch[1];
+                const opfFile = epub.file(currentOpfPath);
+                
+                if (!opfFile) {
+                    throw new Error('OPF file not found at path: ' + currentOpfPath);
+                }
+
+                const opfContent = await opfFile.async('text');
+                
+                // Try multiple methods to find cover image
+                let coverPath = null;
+                
+                // Method 1: Look for cover image in metadata
+                const metaCoverMatch = opfContent.match(/meta\s+name="cover"\s+content="([^"]+)"/);
+                if (metaCoverMatch) {
+                    const coverId = metaCoverMatch[1];
+                    const itemMatch = opfContent.match(new RegExp(`item\\s+id="${coverId}"\\s+href="([^"]+)"`));
+                    if (itemMatch) {
+                        coverPath = itemMatch[1];
+                    }
+                }
+                
+                // Method 2: Look for item with media-type="image/jpeg" or "image/png"
+                if (!coverPath) {
+                    const imageMatch = opfContent.match(/item\s+[^>]*href="([^"]+\.(?:jpg|jpeg|png))"/i);
+                    if (imageMatch) {
+                        coverPath = imageMatch[1];
+                    }
+                }
+                
+                if (!coverPath) {
+                    throw new Error('Could not find cover image path in EPUB');
+                }
+
+                // Resolve relative path
+                const opfDir = currentOpfPath.split('/').slice(0, -1).join('/');
+                currentCoverPath = opfDir ? `${opfDir}/${coverPath}` : coverPath;
+                
+                const coverFile = epub.file(currentCoverPath);
+                if (!coverFile) {
+                    throw new Error('Cover image file not found at path: ' + currentCoverPath);
+                }
+
+                const coverData = await coverFile.async('blob');
+                displayPreview(coverData, 'currentCover');
+                
+            } catch (err) {
+                showError('Error extracting current cover: ' + err.message);
+                console.error('Detailed error:', err);
+            }
+        }
+
+        function displayPreview(imageFile, previewId) {
+            const preview = document.getElementById(previewId);
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+            };
+            
+            reader.readAsDataURL(imageFile);
+        }
+
+        function showError(message) {
+            const error = document.getElementById('error');
+            error.textContent = message;
+            error.style.display = 'block';
+        }
+
+        function updateDownloadButton() {
+            const downloadBtn = document.getElementById('downloadBtn');
+            downloadBtn.disabled = !(epubFile && coverImage);
+        }
+
+        document.getElementById('downloadBtn').addEventListener('click', async () => {
+            try {
+                if (!currentCoverPath) {
+                    showError('Could not determine cover path in EPUB');
+                    return;
+                }
+
+                const zip = new JSZip();
+                
+                // Read the EPUB file
+                const epubContent = await epubFile.arrayBuffer();
+                const epub = await JSZip.loadAsync(epubContent);
+                
+                // Read the new cover image
+                const coverContent = await coverImage.arrayBuffer();
+                
+                // Copy all files from original EPUB
+                for (const [path, file] of Object.entries(epub.files)) {
+                    if (path === currentCoverPath) {
+                        // Replace the cover image
+                        console.log('Replacing cover at path:', path);
+                        zip.file(path, coverContent);
+                    } else {
+                        zip.file(path, await file.async('arraybuffer'));
+                    }
+                }
+
+                // Generate and download the modified EPUB
+                const modifiedEpub = await zip.generateAsync({type: 'blob'});
+                const downloadUrl = URL.createObjectURL(modifiedEpub);
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = epubFile.name.replace('.epub', '_modified.epub');
+                downloadLink.click();
+                URL.revokeObjectURL(downloadUrl);
+
+            } catch (err) {
+                showError('Error processing EPUB: ' + err.message);
+                console.error('Detailed error:', err);
+            }
+        });
+    </script>
+</body>
+</html>
