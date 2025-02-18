@@ -26,11 +26,16 @@
             padding: 10px 20px;
             border-radius: 4px;
             cursor: pointer;
+            margin: 5px;
         }
         button:hover {
             background: #0052a3;
         }
         #qrcode {
+            margin-top: 20px;
+        }
+        #download-btn {
+            display: none;
             margin-top: 20px;
         }
     </style>
@@ -40,6 +45,7 @@
     <input type="url" id="url" placeholder="Enter URL" />
     <button onclick="generateQR()">Generate QR Code</button>
     <div id="qrcode"></div>
+    <button id="download-btn" onclick="downloadQR()">Download QR Code</button>
 
     <script>
         function generateQR() {
@@ -55,6 +61,28 @@
                 width: 256,
                 height: 256
             });
+
+            // Show download button after QR code is generated
+            document.getElementById('download-btn').style.display = 'inline-block';
+        }
+
+        function downloadQR() {
+            // Get the QR code image
+            const img = document.querySelector('#qrcode img');
+            if (!img) return;
+
+            // Create a canvas and draw the image
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            // Create download link
+            const link = document.createElement('a');
+            link.download = 'qrcode.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
         }
     </script>
 </body>
