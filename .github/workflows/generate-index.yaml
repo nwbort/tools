@@ -20,10 +20,29 @@ jobs:
           echo '<meta charset="UTF-8">' >> index.html
           echo '<title>Tools</title>' >> index.html
           echo '<link rel="stylesheet" href="styles.css">' >> index.html
+          echo '<style>
+            .search-container {
+              margin: 20px 0;
+            }
+            #searchInput {
+              width: 100%;
+              max-width: 300px;
+              padding: 8px;
+              font-size: 16px;
+              border: 1px solid #ddd;
+              border-radius: 4px;
+            }
+            .hidden {
+              display: none;
+            }
+          </style>' >> index.html
           echo '</head>' >> index.html
           echo '<body>' >> index.html
           echo '<h1>Tools</h1>' >> index.html
-          echo '<ul>' >> index.html
+          echo '<div class="search-container">' >> index.html
+          echo '<input type="text" id="searchInput" placeholder="Search tools..." aria-label="Search tools">' >> index.html
+          echo '</div>' >> index.html
+          echo '<ul id="toolsList">' >> index.html
           # Sort files alphabetically using sort command
           for file in $(find . -name "*.html" ! -name "index.html" | sort); do
             name=$(basename "$file" .html)
@@ -38,6 +57,24 @@ jobs:
             fi
           done
           echo '</ul>' >> index.html
+          echo '<script>
+            document.getElementById("searchInput").addEventListener("input", function() {
+              const searchText = this.value.toLowerCase();
+              const listItems = document.getElementById("toolsList").getElementsByTagName("li");
+              
+              for (const item of listItems) {
+                const toolName = item.querySelector(".tool-name")?.textContent || item.textContent;
+                const toolDescription = item.querySelector(".tool-description")?.textContent || "";
+                const content = `${toolName} ${toolDescription}`.toLowerCase();
+                
+                if (content.includes(searchText)) {
+                  item.classList.remove("hidden");
+                } else {
+                  item.classList.add("hidden");
+                }
+              }
+            });
+          </script>' >> index.html
           echo '</body>' >> index.html
           echo '</html>' >> index.html
       
