@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="tool-description" content="Add/edit all meta tags">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML Meta Tag Editor</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            line-height: 1.5;
+        }
+
+        .drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            cursor: pointer;
+            transition: border-color 0.3s ease;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #666;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        textarea {
+            height: 5rem;
+            resize: vertical;
+        }
+
+        .preview {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+
+        .preview-image {
+            max-width: 300px;
+            max-height: 200px;
+            margin-top: 1rem;
+            display: none;
+        }
+
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        button:hover {
+            background: #0052a3;
+        }
+        
+        .button-group {
+            margin-top: 1rem;
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>HTML Meta Tag Editor</h1>
+    
+    <div class="drop-zone" id="dropZone">
+        Drop your HTML file here or click to upload
+        <input type="file" id="fileInput" accept=".html" style="display: none">
+    </div>
+
+    <div class="form-group">
+        <label for="title">Title</label>
+        <input type="text" id="title" placeholder="Page title">
+    </div>
+
+    <div class="form-group">
+        <label for="description">Description</label>
+        <textarea id="description" placeholder="Page description"></textarea>
+    </div>
+
+    <div class="form-group">
+        <label for="keywords">Keywords (comma-separated)</label>
+        <input type="text" id="keywords" placeholder="keyword1, keyword2, keyword3">
+    </div>
+
+    <div class="form-group">
+        <label for="imageInput">Preview Image</label>
+        <input type="file" id="imageInput" accept="image/*">
+        <img id="previewImage" class="preview-image" alt="Preview">
+    </div>
+
+    <div class="preview">
+        <h3>Generated Meta Tags:</h3>
+        <pre id="metaPreview"></pre>
+    </div>
+
+    <div class="button-group">
+        <button id="downloadBtn" disabled>Download edited HTML</button>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const downloadBtn = document.getElementById('downloadBtn');
+        let originalHtmlContent = '';
+        const imageInput = document.getElementById('imageInput');
+        const previewImage = document.getElementById('previewImage');
+        const metaPreview = document.getElementById('metaPreview');
+        
+        // Handle drag and drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.html')) {
+                handleFileUpload(file);
+            }
+        });
+
+        // Handle click to upload
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleFileUpload(file);
+            }
+        });
+
+        // Handle image upload
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    previewImage.src = e.target.result;
+                    previewImage.style.display = 'block';
+                    updateMetaPreview();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Handle HTML file upload
+        function handleFileUpload(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target.result;
+                originalHtmlContent = content;
+                // Parse existing meta tags if needed
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(content, 'text/html');
+                
+                // Update form with existing values
+                const existingTitle = doc.querySelector('title');
+                if (existingTitle) {
+                    document.getElementById('title').value = existingTitle.textContent;
+                }
+
+                const existingDesc = doc.querySelector('meta[name="description"]');
+                if (existingDesc) {
+                    document.getElementById('description').value = existingDesc.getAttribute('content');
+                }
+
+                const existingKeywords = doc.querySelector('meta[name="keywords"]');
+                if (existingKeywords) {
+                    document.getElementById('keywords').value = existingKeywords.getAttribute('content');
+                }
+
+                updateMetaPreview();
+                downloadBtn.disabled = false;
+            };
+            reader.readAsText(file);
+        }
+
+        // Update meta preview
+        function updateMetaPreview() {
+            const title = document.getElementById('title').value;
+            const description = document.getElementById('description').value;
+            const keywords = document.getElementById('keywords').value;
+            
+            let metaTags = `<title>${title}</title>\n`;
+            metaTags += `<meta name="description" content="${description}">\n`;
+            metaTags += `<meta name="keywords" content="${keywords}">\n\n`;
+            
+            // Add OpenGraph meta tags
+            metaTags += `<meta property="og:title" content="${title}">\n`;
+            metaTags += `<meta property="og:description" content="${description}">\n`;
+            
+            if (previewImage.src && previewImage.src !== window.location.href) {
+                metaTags += `<meta property="og:image" content="${previewImage.src}">\n`;
+            }
+
+            // Add Twitter Card meta tags
+            metaTags += `<meta name="twitter:card" content="summary_large_image">\n`;
+            metaTags += `<meta name="twitter:title" content="${title}">\n`;
+            metaTags += `<meta name="twitter:description" content="${description}">\n`;
+            
+            if (previewImage.src && previewImage.src !== window.location.href) {
+                metaTags += `<meta name="twitter:image" content="${previewImage.src}">`;
+            }
+
+            metaPreview.textContent = metaTags;
+        }
+
+        // Update preview when form fields change
+        document.querySelectorAll('input, textarea').forEach(element => {
+            element.addEventListener('input', updateMetaPreview);
+        });
+
+        // Handle download of edited HTML
+        downloadBtn.addEventListener('click', () => {
+            if (!originalHtmlContent) return;
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(originalHtmlContent, 'text/html');
+
+            // Remove existing meta tags we're going to replace
+            const existingMetaTags = doc.head.querySelectorAll('meta[name="description"], meta[name="keywords"], meta[property^="og:"], meta[name^="twitter:"]');
+            existingMetaTags.forEach(tag => tag.remove());
+
+            // Update or create title
+            let titleElement = doc.querySelector('title');
+            if (!titleElement) {
+                titleElement = doc.createElement('title');
+                doc.head.appendChild(titleElement);
+            }
+            titleElement.textContent = document.getElementById('title').value;
+
+            // Add new meta tags
+            const metaString = metaPreview.textContent;
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = metaString;
+            
+            // Remove existing title tag since we already handled it
+            const tempTitle = tempDiv.querySelector('title');
+            if (tempTitle) tempTitle.remove();
+
+            // Add all other meta tags to head
+            while (tempDiv.firstChild) {
+                doc.head.appendChild(tempDiv.firstChild);
+            }
+
+            // Create download link
+            const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'edited.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
