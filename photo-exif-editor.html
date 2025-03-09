@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="tool-description" content="Add location and datetime metadata to photos">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo EXIF Editor</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        h2 {
+            margin-bottom: 1rem;
+        }
+
+        .upload-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 0.5rem;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-area:hover {
+            border-color: #2563eb;
+            background: #f8fafc;
+        }
+
+        .upload-prompt {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            color: #666;
+        }
+
+        .upload-prompt svg {
+            stroke: #666;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .photo-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .photo-entry {
+            background: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 1rem;
+        }
+
+        .photo-preview {
+            width: 100%;
+            aspect-ratio: 3/2;
+            object-fit: cover;
+            border-radius: 0.25rem;
+        }
+
+        .photo-details {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .filename {
+            font-weight: 500;
+            color: #666;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .input-group label {
+            font-size: 0.875rem;
+            color: #666;
+        }
+
+        input[type="datetime-local"] {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+        }
+
+        .location-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .coordinates-display {
+            padding: 0.5rem;
+            background: #f3f4f6;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+        }
+
+        .pick-location-btn {
+            background: #4b5563;
+            color: white;
+            border: none;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .pick-location-btn:hover {
+            background: #374151;
+        }
+
+        .actions {
+            margin-top: 2rem;
+            text-align: center;
+        }
+
+        button#exportBtn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button#exportBtn:hover {
+            background: #1d4ed8;
+        }
+
+        button#exportBtn:disabled {
+            background: #93c5fd;
+            cursor: not-allowed;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            position: relative;
+            background: white;
+            margin: 2rem auto;
+            padding: 1rem;
+            width: 90%;
+            max-width: 800px;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            line-height: 1;
+        }
+
+        #map {
+            height: 400px;
+            border-radius: 0.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .coordinates {
+            font-size: 0.875rem;
+            color: #666;
+        }
+
+        #confirmLocation {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #confirmLocation:hover {
+            background: #1d4ed8;
+        }
+
+        #confirmLocation:disabled {
+            background: #93c5fd;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 640px) {
+            .photo-entry {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Photo EXIF Editor</h1>
+        
+        <div class="upload-card">
+            <h2>Upload photos</h2>
+            <div class="upload-area" id="photoUpload">
+                <input type="file" id="photos" accept="image/*" multiple class="file-input">
+                <label for="photos">
+                    <div class="upload-prompt">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                        </svg>
+                        <span>Upload photos</span>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <div id="photoList" class="photo-list"></div>
+
+        <div class="actions">
+            <button id="exportBtn" disabled>Update EXIF data & download</button>
+        </div>
+    </div>
+
+    <!-- Map Modal -->
+    <div id="mapModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Pick location</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div id="map"></div>
+            <div class="modal-footer">
+                <div class="coordinates">
+                    <span id="selectedCoords">Click on the map to select a location</span>
+                </div>
+                <button id="confirmLocation" disabled>Confirm location</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load libraries -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/piexifjs/1.0.6/piexif.js"></script>
+    
+    <script>
+        // EXIF data handler using piexifjs
+        const ExifHandler = {
+            // Convert GPS coordinates to EXIF format
+            convertToExifGPS(latitude, longitude) {
+                const lat = Math.abs(latitude);
+                const lng = Math.abs(longitude);
+                
+                const latDeg = Math.floor(lat);
+                const latMin = Math.floor((lat - latDeg) * 60);
+                const latSec = Math.round(((lat - latDeg) * 60 - latMin) * 60 * 100);
+                
+                const lngDeg = Math.floor(lng);
+                const lngMin = Math.floor((lng - lngDeg) * 60);
+                const lngSec = Math.round(((lng - lngDeg) * 60 - lngMin) * 60 * 100);
+                
+                const latRef = latitude >= 0 ? "N" : "S";
+                const lngRef = longitude >= 0 ? "E" : "W";
+                
+                return {
+                    GPSLatitudeRef: latRef,
+                    GPSLatitude: [[latDeg, 1], [latMin, 1], [latSec, 100]],
+                    GPSLongitudeRef: lngRef,
+                    GPSLongitude: [[lngDeg, 1], [lngMin, 1], [lngSec, 100]]
+                };
+            },
+
+            // Convert ISO date string with timezone to EXIF datetime format
+            convertToExifDateTime(isoString) {
+                // Parse the ISO string with timezone info
+                const date = new Date(isoString);
+                
+                // Format to EXIF datetime format: "YYYY:MM:DD HH:MM:SS"
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                
+                return `${year}:${month}:${day} ${hours}:${minutes}:${seconds}`;
+            },
+
+            // Create EXIF data object from metadata
+            createExifData(metadata) {
+                const datetime = this.convertToExifDateTime(metadata.timestamp);
+                const gps = this.convertToExifGPS(
+                    metadata.location.latitude,
+                    metadata.location.longitude
+                );
+
+                return {
+                    "0th": {
+                        [piexif.ImageIFD.DateTime]: datetime,
+                        [piexif.ImageIFD.Software]: "Photo EXIF Editor"
+                    },
+                    "Exif": {
+                        [piexif.ExifIFD.DateTimeOriginal]: datetime,
+                        [piexif.ExifIFD.DateTimeDigitized]: datetime
+                    },
+                    "GPS": {
+                        [piexif.GPSIFD.GPSLatitudeRef]: gps.GPSLatitudeRef,
+                        [piexif.GPSIFD.GPSLatitude]: gps.GPSLatitude,
+                        [piexif.GPSIFD.GPSLongitudeRef]: gps.GPSLongitudeRef,
+                        [piexif.GPSIFD.GPSLongitude]: gps.GPSLongitude
+                    }
+                };
+            },
+
+            // Apply EXIF data to an image
+            async applyExifData(imageFile, metadata) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    
+                    reader.onload = () => {
+                        try {
+                            // Get base64 image data
+                            const imageData = reader.result;
+                            
+                            // Create EXIF data
+                            const exifObj = this.createExifData(metadata);
+                            const exifBytes = piexif.dump(exifObj);
+                            
+                            // Insert EXIF into image
+                            const newImageData = piexif.insert(exifBytes, imageData);
+                            
+                            // Convert base64 to blob
+                            const byteString = atob(newImageData.split(',')[1]);
+                            const mimeString = newImageData.split(',')[0].split(':')[1].split(';')[0];
+                            const ab = new ArrayBuffer(byteString.length);
+                            const ia = new Uint8Array(ab);
+                            
+                            for (let i = 0; i < byteString.length; i++) {
+                                ia[i] = byteString.charCodeAt(i);
+                            }
+                            
+                            const blob = new Blob([ab], { type: mimeString });
+                            resolve(blob);
+                        } catch (err) {
+                            reject(err);
+                        }
+                    };
+                    
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsDataURL(imageFile);
+                });
+            }
+        };
+
+        // App variables
+        let photos = [];
+        const photoList = document.getElementById('photoList');
+        const exportBtn = document.getElementById('exportBtn');
+        const mapModal = document.getElementById('mapModal');
+        const confirmLocationBtn = document.getElementById('confirmLocation');
+        const selectedCoordsSpan = document.getElementById('selectedCoords');
+
+        // Map variables
+        let map = null;
+        let marker = null;
+        let selectedLocation = null;
+        let activePhotoEntry = null;
+
+        // Initialize map
+        function initMap() {
+            if (map) return; // Only initialize once
+
+            map = L.map('map').setView([-33.8688, 151.2093], 13); // Default to Sydney
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            map.on('click', function(e) {
+                const lat = e.latlng.lat.toFixed(6);
+                const lng = e.latlng.lng.toFixed(6);
+                
+                if (marker) {
+                    marker.setLatLng(e.latlng);
+                } else {
+                    marker = L.marker(e.latlng).addTo(map);
+                }
+
+                selectedLocation = { latitude: parseFloat(lat), longitude: parseFloat(lng) };
+                selectedCoordsSpan.textContent = `${lat}, ${lng}`;
+                confirmLocationBtn.disabled = false;
+            });
+        }
+
+        // Handle photo upload
+        document.getElementById('photos').addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name));
+            if (files.length === 0) return;
+
+            // Clear existing photos
+            photos = [];
+            photoList.innerHTML = '';
+
+            // Process each photo
+            photos = await Promise.all(files.map(async file => {
+                return {
+                    file,
+                    name: file.name,
+                    preview: URL.createObjectURL(file),
+                    metadata: {
+                        timestamp: new Date().toISOString(),
+                        location: {
+                            latitude: null,
+                            longitude: null
+                        }
+                    }
+                };
+            }));
+
+            // Add photos to the list
+            photos.forEach(addPhotoToList);
+            updateExportButton();
+        });
+
+        // Add a photo entry to the list
+        function addPhotoToList(photo) {
+            // Create photo entry container
+            const container = document.createElement('div');
+            container.className = 'photo-entry';
+            
+            // Create photo preview
+            const previewImg = document.createElement('img');
+            previewImg.className = 'photo-preview';
+            previewImg.src = photo.preview;
+            previewImg.alt = photo.name;
+            container.appendChild(previewImg);
+            
+            // Create details container
+            const detailsDiv = document.createElement('div');
+            detailsDiv.className = 'photo-details';
+            
+            // Add filename
+            const filenameDiv = document.createElement('div');
+            filenameDiv.className = 'filename';
+            filenameDiv.textContent = photo.name;
+            detailsDiv.appendChild(filenameDiv);
+            
+            // Add datetime input
+            const inputGroup = document.createElement('div');
+            inputGroup.className = 'input-group';
+            
+            const dateLabel = document.createElement('label');
+            dateLabel.textContent = 'Date/Time:';
+            
+            const datetimeInput = document.createElement('input');
+            datetimeInput.type = 'datetime-local';
+            datetimeInput.className = 'datetime-input';
+            datetimeInput.step = '1';
+            datetimeInput.value = new Date().toISOString().slice(0, 19);
+            datetimeInput.addEventListener('change', (e) => {
+                photo.metadata.timestamp = new Date(e.target.value).toISOString();
+                updateExportButton();
+            });
+            
+            dateLabel.appendChild(datetimeInput);
+            inputGroup.appendChild(dateLabel);
+            detailsDiv.appendChild(inputGroup);
+            
+            // Add location group
+            const locationGroup = document.createElement('div');
+            locationGroup.className = 'location-group';
+            
+            const coordsDisplay = document.createElement('div');
+            coordsDisplay.className = 'coordinates-display';
+            
+            const coordsText = document.createElement('span');
+            coordsText.className = 'coords-text';
+            coordsText.textContent = 'No location selected';
+            coordsDisplay.appendChild(coordsText);
+            
+            const pickLocationBtn = document.createElement('button');
+            pickLocationBtn.className = 'pick-location-btn';
+            pickLocationBtn.textContent = 'Pick location on map';
+            pickLocationBtn.addEventListener('click', () => {
+                activePhotoEntry = { photo, coordsText };
+                showMapModal();
+            });
+            
+            locationGroup.appendChild(coordsDisplay);
+            locationGroup.appendChild(pickLocationBtn);
+            detailsDiv.appendChild(locationGroup);
+            
+            container.appendChild(detailsDiv);
+            photoList.appendChild(container);
+        }
+
+        // Show map modal
+        function showMapModal() {
+            mapModal.style.display = 'block';
+            initMap();
+            
+            // Reset marker and selection
+            if (marker) {
+                marker.remove();
+                marker = null;
+            }
+            selectedLocation = null;
+            confirmLocationBtn.disabled = true;
+            selectedCoordsSpan.textContent = 'Click on the map to select a location';
+            
+            // Center map on current location if available
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        map.setView([position.coords.latitude, position.coords.longitude], 13);
+                    },
+                    () => {} // Silently fail and keep default location
+                );
+            }
+            
+            // Force map to update size after becoming visible
+            setTimeout(() => map.invalidateSize(), 100);
+        }
+
+        // Handle modal close button
+        document.querySelector('.close-btn').addEventListener('click', () => {
+            mapModal.style.display = 'none';
+        });
+
+        // Close modal if clicking outside
+        window.addEventListener('click', (e) => {
+            if (e.target === mapModal) {
+                mapModal.style.display = 'none';
+            }
+        });
+
+        // Handle location confirmation
+        confirmLocationBtn.addEventListener('click', () => {
+            if (activePhotoEntry && selectedLocation) {
+                activePhotoEntry.photo.metadata.location = selectedLocation;
+                activePhotoEntry.coordsText.textContent = 
+                    `${selectedLocation.latitude}, ${selectedLocation.longitude}`;
+                mapModal.style.display = 'none';
+                updateExportButton();
+            }
+        });
+
+        // Check if all required data is filled
+        function checkPhotoData() {
+            return photos.every(photo => 
+                photo.metadata.timestamp &&
+                photo.metadata.location.latitude !== null &&
+                photo.metadata.location.longitude !== null
+            );
+        }
+
+        // Update export button state
+        function updateExportButton() {
+            exportBtn.disabled = !photos.length || !checkPhotoData();
+        }
+
+        // Handle export button click
+        exportBtn.addEventListener('click', async () => {
+            try {
+                // Process each photo
+                const processedPhotos = await Promise.all(
+                    photos.map(async photo => {
+                        const processedBlob = await ExifHandler.applyExifData(photo.file, photo.metadata);
+                        return {
+                            name: photo.name,
+                            blob: processedBlob
+                        };
+                    })
+                );
+
+                // Create zip file
+                const zip = new JSZip();
+                processedPhotos.forEach(photo => {
+                    zip.file(photo.name, photo.blob);
+                });
+
+                // Generate and download zip
+                const zipBlob = await zip.generateAsync({type: 'blob'});
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `photos-with-exif-${new Date().toISOString().split('T')[0]}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+            } catch (err) {
+                alert('Error processing photos. Please try again.');
+                console.error('Error processing photos:', err);
+            }
+        });
+    </script>
+</body>
+</html>
