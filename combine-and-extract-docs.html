@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="tool-description" content="Convert msg and attachments to single PDF">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSG to Combined PDF Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .drop-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .drop-area:hover, .drop-area.dragover {
+            background-color: #f0f0f0;
+            border-color: #999;
+        }
+        .drop-area p {
+            margin: 0;
+            font-size: 18px;
+            color: #666;
+        }
+        .btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .hidden {
+            display: none;
+        }
+        #preview {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: white;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .attachment {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+        }
+        .attachment-icon {
+            margin-right: 10px;
+            font-size: 24px;
+        }
+        #attachments-list {
+            margin-top: 20px;
+        }
+        #attachments-list h2 {
+            margin-bottom: 10px;
+        }
+        .file-list-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .file-list-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MSG to Combined PDF Converter</h1>
+
+        <div id="drop-area" class="drop-area">
+            <p>Drag & drop your .msg files here or click to browse</p>
+            <input type="file" id="fileInput" accept=".msg" style="display: none;" multiple>
+        </div>
+
+        <div id="loader" class="loader hidden"></div>
+        <div id="status" class="hidden"></div>
+
+        <div id="file-list-container">
+            <h2>Files to Process</h2>
+            <div id="file-list">
+                <p>No files selected yet.</p>
+            </div>
+        </div>
+
+        <div id="preview-container" class="hidden">
+            <h2>Preview</h2>
+            <div id="preview"></div>
+        </div>
+
+        <div id="attachments-container" class="hidden">
+            <div id="attachments-list">
+                <h2>PDF Attachments</h2>
+                <div id="pdf-attachments-list"></div>
+            </div>
+        </div>
+
+        <button id="downloadBtn" class="btn hidden" disabled>Generate Combined PDF & Download</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cfb@1.2.2/cfb.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropArea = document.getElementById('drop-area');
+            const fileInput = document.getElementById('fileInput');
+            const status = document.getElementById('status');
+            const preview = document.getElementById('preview');
+            const previewContainer = document.getElementById('preview-container');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const loader = document.getElementById('loader');
+            const attachmentsContainer = document.getElementById('attachments-container');
+            const pdfAttachmentsListDiv = document.getElementById('pdf-attachments-list');
+            const fileListContainer = document.getElementById('file-list-container');
+            const fileListDiv = document.getElementById('file-list');
+
+            let allEmailData = []; // Array to store data for all processed emails
+            let currentFilePreviews = []; // Not used for now, can be used for individual previews later
+
+            // Setup the drag and drop handlers
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, unhighlight, false);
+            });
+
+            function highlight() {
+                dropArea.classList.add('dragover');
+            }
+
+            function unhighlight() {
+                dropArea.classList.remove('dragover');
+            }
+
+            // Handle dropped files
+            dropArea.addEventListener('drop', handleDrop, false);
+
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                handleFiles(files);
+            }
+
+            // Handle click to upload
+            dropArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            fileInput.addEventListener('change', function() {
+                handleFiles(this.files);
+            });
+
+            function handleFiles(files) {
+                if (files.length === 0) return;
+
+                fileListDiv.innerHTML = ''; // Clear previous file list
+                allEmailData = []; // Reset email data array
+                currentFilePreviews = []; // Reset previews
+
+                let validFiles = Array.from(files).filter(file => file.name.toLowerCase().endsWith('.msg'));
+                if (validFiles.length === 0) {
+                    showStatus('Please upload .msg files.', 'error');
+                    return;
+                }
+
+                fileListContainer.classList.remove('hidden');
+                if (validFiles.length > 0) {
+                    fileListDiv.innerHTML = ''; // Clear "No files selected" message
+                    validFiles.forEach(file => {
+                        const fileItem = document.createElement('div');
+                        fileItem.className = 'file-list-item';
+                        fileItem.textContent = file.name;
+                        fileListDiv.appendChild(fileItem);
+                    });
+                } else {
+                    fileListDiv.innerHTML = '<p>No valid .msg files selected.</p>';
+                    showStatus('Please upload .msg files.', 'error');
+                    return;
+                }
+
+
+                showLoader(true);
+                downloadBtn.disabled = true;
+                status.classList.add('hidden');
+                previewContainer.classList.add('hidden');
+                attachmentsContainer.classList.add('hidden');
+
+                processAllMsgFiles(validFiles);
+            }
+
+            async function processAllMsgFiles(files) {
+                allEmailData = [];
+                for (const file of files) {
+                    try {
+                        const emailData = await processMsgFile(file);
+                        allEmailData.push(emailData);
+                    } catch (error) {
+                        showStatus(`Error processing file ${file.name}: ${error.message}`, 'error');
+                        showLoader(false);
+                        downloadBtn.disabled = true; // Keep disabled if any file fails
+                        return; // Stop processing further files if one fails critically
+                    }
+                }
+
+                if (allEmailData.length > 0) {
+                    downloadBtn.classList.remove('hidden');
+                    downloadBtn.disabled = false;
+                    showLoader(false);
+                    showStatus(`${allEmailData.length} MSG files processed successfully. Click "Generate Combined PDF & Download".`, 'success');
+                } else {
+                    showLoader(false);
+                    downloadBtn.disabled = true;
+                    showStatus('No MSG files were successfully processed.', 'error');
+                }
+            }
+
+
+            async function processMsgFile(file) {
+                try {
+                    const arrayBuffer = await readFileAsArrayBuffer(file);
+                    const email = await parseMsg(arrayBuffer, file.name);
+                    email.rawMsgData = arrayBuffer; // Store raw data for PDF attachment extraction
+                    const emailPdfDocument = generatePdfDocument(email); // Generate PDF for email content
+                    const extractedPdfAttachments = await extractPdfAttachmentsFromEmail(email);
+
+                    return {
+                        email: email,
+                        emailPdfDocument: emailPdfDocument,
+                        extractedPdfAttachments: extractedPdfAttachments
+                    };
+
+                } catch (error) {
+                    console.error('Error processing MSG file:', error);
+                    throw new Error('Error processing the MSG file: ' + error.message);
+                }
+            }
+
+            function readFileAsArrayBuffer(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            // --- convertMsgToPdf function (modified to be synchronous for PDF generation) ---
+            function generatePdfDocument(email) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+
+                // Set up PDF content
+                doc.setFontSize(16);
+                doc.text(email.subject || 'Email Message', 20, 20);
+
+                doc.setFontSize(11);
+                let y = 30;
+                const lineHeight = 7;
+
+                doc.text(`From: ${email.from}`, 20, y);
+                y += lineHeight;
+
+                doc.text(`To: ${email.to}`, 20, y);
+                y += lineHeight;
+
+                if (email.cc) {
+                    doc.text(`CC: ${email.cc}`, 20, y);
+                    y += lineHeight;
+                }
+
+                doc.text(`Date: ${email.date}`, 20, y);
+                y += lineHeight * 2;
+
+                // Handle the email body text
+                const margin = 20;
+                const pageWidth = doc.internal.pageSize.getWidth() - (margin * 2);
+
+                // Get the body content (prefer plain text for PDF)
+                let bodyText = email.body;
+                if (!bodyText && email.htmlBody) {
+                    // Extract text from HTML
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = email.htmlBody;
+                    bodyText = tmp.textContent || tmp.innerText || '';
+                }
+
+                // Split body text to fit on the page
+                const splitBody = doc.splitTextToSize(bodyText, pageWidth);
+                doc.setFontSize(10);
+                doc.text(splitBody, margin, y);
+
+                // Update y position after body text
+                y += splitBody.length * 5;
+
+                // Add attachments list if any (email attachments - not PDF attachments)
+                if (email.attachments && email.attachments.length > 0) {
+                    y += lineHeight * 2;
+                    doc.setFontSize(11);
+                    doc.text('Email Attachments (Non-PDF):', 20, y); // Differentiate from PDF attachments
+                    y += lineHeight;
+
+                    email.attachments.forEach(attachment => {
+                        doc.text(`• ${attachment.filename}`, 25, y);
+                        y += lineHeight;
+                    });
+                }
+                return doc;
+            }
+
+             // --- convertMsgToPdf parseMsg and helper functions ---
+            async function parseMsg(arrayBuffer, fileName) {
+                try {
+                    // Initialize email object with default values
+                    const email = {
+                        fileName: fileName,
+                        subject: 'No Subject',
+                        from: 'Unknown Sender',
+                        to: 'Unknown Recipient',
+                        cc: '',
+                        date: new Date().toLocaleString(),
+                        body: '',
+                        htmlBody: '',
+                        attachments: []
+                    };
+
+                    try {
+                        // Try to parse with CFB, but be prepared for failure
+                        const cfb = CFB.read(arrayBuffer, {type: 'buffer'});
+
+                        // Process the relevant streams in the CFB structure
+                        if (cfb) {
+                            // Extract properties from top-level property stream
+                            const propStream = getStreamByPath(cfb, '__properties_version1.0');
+                            if (propStream) {
+                                processPropertyStream(propStream, email);
+                            }
+
+                            // Try to extract message body (plain text)
+                            const bodyStream = getStreamByPath(cfb, '__substg1.0_1000001F');
+                            if (bodyStream) {
+                                email.body = CFB.utils.convertToString(bodyStream, 'utf-16le').replace(/\0/g, '');
+                            }
+
+                            // Try to extract HTML body
+                            const htmlBodyStream = getStreamByPath(cfb, '__substg1.0_10130102');
+                            if (htmlBodyStream) {
+                                email.htmlBody = CFB.utils.convertToString(htmlBodyStream, 'utf-16le').replace(/\0/g, '');
+                            }
+
+                            // Extract common properties directly
+                            extractSpecificProperty(cfb, '__substg1.0_0037001F', email, 'subject', 'utf-16le');
+                            extractSpecificProperty(cfb, '__substg1.0_0042001F', email, 'from', 'utf-16le');
+                            extractSpecificProperty(cfb, '__substg1.0_0E04001F', email, 'to', 'utf-16le');
+                            extractSpecificProperty(cfb, '__substg1.0_0E03001F', email, 'cc', 'utf-16le');
+
+                            // Look for RTF body if plain text not found
+                            if (!email.body && !email.htmlBody) {
+                                const rtfBodyStream = getStreamByPath(cfb, '__substg1.0_10090102');
+                                if (rtfBodyStream) {
+                                    // RTF is binary, just extract some readable text
+                                    const rtfData = new Uint8Array(rtfBodyStream);
+                                    email.body = extractReadableText(rtfData);
+                                }
+                            }
+
+                            // Search for attachments
+                            findAttachments(cfb, email);
+                        }
+                    } catch (cfbError) {
+                        console.warn('CFB parsing failed, using fallback methods:', cfbError);
+                        // If CFB parsing fails, we'll continue with the raw extraction methods below
+                    }
+
+                    // Always try to extract from raw content as a fallback or additional data source
+                    const rawTextContent = extractRawTextFromBuffer(arrayBuffer);
+
+                    if (!email.subject) {
+                        const subjectMatch = /Subject:\s*([^\r\n]+)/i.exec(rawTextContent);
+                        if (subjectMatch) email.subject = subjectMatch[1].trim();
+                    }
+                    if (!email.from) {
+                        const fromMatch = /From:\s*([^\r\n]+)/i.exec(rawTextContent);
+                        if (fromMatch) email.from = fromMatch[1].trim();
+                    }
+                    if (!email.to) {
+                        const toMatch = /To:\s*([^\r\n]+)/i.exec(rawTextContent);
+                        if (toMatch) email.to = toMatch[1].trim();
+                    }
+                    if (!email.body && !email.htmlBody) {
+                        // Look for body after headers
+                        const bodyMatch = /\r\n\r\n([\s\S]+)/i.exec(rawTextContent);
+                        if (bodyMatch) email.body = bodyMatch[1].trim();
+                    }
+
+                    // In case all else fails, create a minimal representation from the filename
+                    if (email.subject === 'No Subject' && fileName) {
+                        // Try to extract a meaningful subject from the filename
+                        email.subject = fileName.replace(/\.msg$/i, '');
+                    }
+
+                    // Ensure we have at least some content to display
+                    if (!email.body && !email.htmlBody) {
+                        email.body = "Unable to extract message content. The MSG file may be in a format that this tool cannot fully parse.";
+                    }
+
+                    return email;
+                } catch (error) {
+                    console.error('Error parsing MSG file:', error);
+                    throw new Error('Failed to parse the MSG file. It may be corrupted or in an unsupported format.');
+                }
+            }
+
+            // Helper function to get a stream by its path
+            function getStreamByPath(cfb, path) {
+                const entry = CFB.find(cfb, path);
+                if (entry && !entry.type) {  // type==0 means it's a file, not a directory
+                    return entry.content;
+                }
+                return null;
+            }
+
+            // Extract a specific property from a stream
+            function extractSpecificProperty(cfb, streamName, email, propertyName, encoding = 'utf-16le') {
+                const stream = getStreamByPath(cfb, streamName);
+                if (stream) {
+                    const value = CFB.utils.convertToString(stream, encoding).replace(/\0/g, '');
+                    if (value) {
+                        email[propertyName] = value;
+                    }
+                }
+            }
+
+            // Find attachment entries in the CFB structure
+            function findAttachments(cfb, email) {
+                // Look for attachment directories (they follow the pattern "__attach_version1.0_#...")
+                for (let i = 0; i < cfb.FullPaths.length; i++) {
+                    const path = cfb.FullPaths[i];
+                    if (path.includes('__attach_version1.0_#') && cfb.FileIndex[i].type === 1) { // type==1 means directory
+                        const attachmentDir = path;
+
+                        // Look for attachment filename
+                        const filenameStream = getStreamByPath(cfb, attachmentDir + '/__substg1.0_3001001F');
+                        if (filenameStream) {
+                            const filename = CFB.utils.convertToString(filenameStream, 'utf-16le').replace(/\0/g, '');
+
+                            // Look for attachment data
+                            const dataStream = getStreamByPath(cfb, attachmentDir + '/__substg1.0_37010102');
+
+                            email.attachments.push({
+                                filename: filename,
+                                hasData: !!dataStream,
+                                size: dataStream ? dataStream.length : 0
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Extract readable text from a binary buffer
+            function extractReadableText(buffer) {
+                let result = '';
+                for (let i = 0; i < buffer.length; i++) {
+                    const charCode = buffer[i];
+                    // Only include printable ASCII characters
+                    if (charCode >= 32 && charCode <= 126) {
+                        result += String.fromCharCode(charCode);
+                    } else if (charCode === 10 || charCode === 13) {
+                        // Include newlines
+                        result += String.fromCharCode(charCode);
+                    }
+                }
+                return result;
+            }
+
+            // Extract raw text from an ArrayBuffer
+            function extractRawTextFromBuffer(arrayBuffer) {
+                const array = new Uint8Array(arrayBuffer);
+                let result = '';
+
+                // Try to extract readable text
+                for (let i = 0; i < array.length; i++) {
+                    const charCode = array[i];
+                    // Only include printable ASCII characters and newlines
+                    if ((charCode >= 32 && charCode <= 126) || charCode === 10 || charCode === 13) {
+                        result += String.fromCharCode(charCode);
+                    }
+                }
+                return result;
+            }
+
+            // Process property stream (incomplete implementation)
+            function processPropertyStream(propStream, email) {
+                // This is a simplified implementation
+                // A full implementation would need to handle the complex structure
+                // of the property stream as specified in MS-OXMSG
+
+                // For now, we'll just try to extract date information if available
+                if (propStream && propStream.length > 24) {
+                    // The property stream contains headers and then property entries
+                    // This is a simplified approach and may not work for all .msg files
+
+                    // Look for PidTagCreationTime (0x30070040) or PidTagLastModificationTime (0x30080040)
+                    // These would be stored as FILETIME values
+                    for (let i = 24; i < propStream.length - 16; i += 16) {
+                        const propTag = (propStream[i] | (propStream[i + 1] << 8) |
+                                        (propStream[i + 2] << 16) | (propStream[i + 3] << 24)) >>> 0;
+
+                        if (propTag === 0x30070040 || propTag === 0x30080040) {
+                            try {
+                                // Extract the FILETIME value (64-bit value representing the number of 100-nanosecond intervals since January 1, 1601)
+                                const lowPart = (propStream[i + 8] | (propStream[i + 9] << 8) |
+                                               (propStream[i + 10] << 16) | (propStream[i + 11] << 24)) >>> 0;
+                                const highPart = (propStream[i + 12] | (propStream[i + 13] << 8) |
+                                                (propStream[i + 14] << 16) | (propStream[i + 15] << 24)) >>> 0;
+
+                                // Convert to JavaScript Date
+                                // FILETIME is 100-nanosecond intervals since January 1, 1601 UTC
+                                // JavaScript Date is milliseconds since January 1, 1970 UTC
+                                // Difference is 11,644,473,600,000 milliseconds
+                                const fileTimeToMs = (highPart * 4294967296 + lowPart) / 10000 - 11644473600000;
+                                const date = new Date(fileTimeToMs);
+
+                                if (!isNaN(date.getTime())) {
+                                    email.date = date.toLocaleString();
+                                    break;
+                                }
+                            } catch (e) {
+                                console.error('Error parsing date:', e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Format the email content for preview
+            function formatEmailContent(email) {
+                let html = `
+                    <div style="font-family: Arial, sans-serif;">
+                        <div style="margin-bottom: 20px;">
+                            <div><strong>From:</strong> ${escapeHtml(email.from)}</div>
+                            <div><strong>To:</strong> ${escapeHtml(email.to)}</div>`;
+
+                if (email.cc) {
+                    html += `<div><strong>CC:</strong> ${escapeHtml(email.cc)}</div>`;
+                }
+
+                html += `
+                            <div><strong>Subject:</strong> ${escapeHtml(email.subject)}</div>
+                            <div><strong>Date:</strong> ${escapeHtml(email.date)}</div>
+                        </div>`;
+
+                // Use HTML body if available, otherwise use plain text
+                if (email.htmlBody) {
+                    html += `<div>${sanitizeHtml(email.htmlBody)}</div>`;
+                } else {
+                    html += `<div style="white-space: pre-wrap;">${escapeHtml(email.body)}</div>`;
+                }
+
+                // Add attachments if any
+                if (email.attachments && email.attachments.length > 0) {
+                    html += `<div style="margin-top: 20px;"><strong>Email Attachments (Non-PDF):</strong></div>`;
+                    email.attachments.forEach(attachment => {
+                        html += `
+                            <div class="attachment">
+                                <span class="attachment-icon">📎</span>
+                                <span>${escapeHtml(attachment.filename)}</span>
+                            </div>
+                        `;
+                    });
+                }
+
+                html += `</div>`;
+                return html;
+            }
+
+            // Basic HTML sanitization
+            function sanitizeHtml(html) {
+                if (!html) return '';
+
+                // Create a new DOMParser
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // Remove potentially dangerous elements and attributes
+                const dangerousTags = ['script', 'style', 'iframe', 'object', 'embed', 'base'];
+                const dangerousAttrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onmouseout'];
+
+                dangerousTags.forEach(tag => {
+                    const elements = doc.getElementsByTagName(tag);
+                    for (let i = elements.length - 1; i >= 0; i--) {
+                        elements[i].parentNode.removeChild(elements[i]);
+                    }
+                });
+
+                const allElements = doc.getElementsByTagName('*');
+                for (let i = 0; i < allElements.length; i++) {
+                    dangerousAttrs.forEach(attr => {
+                        if (allElements[i].hasAttribute(attr)) {
+                            allElements[i].removeAttribute(attr);
+                        }
+                    });
+                }
+
+                return doc.body.innerHTML;
+            }
+
+            // Helper function to escape HTML
+            function escapeHtml(str) {
+                if (!str) return '';
+                return str
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }
+
+
+            // --- extractPdfAttachmentsFromEmail and helper functions ---
+            async function extractPdfAttachmentsFromEmail(email) {
+                if (!email) {
+                    throw new Error("Email object is required.");
+                }
+
+                let pdfAttachments = [];
+                let buffer;
+
+                // Assuming the raw MSG ArrayBuffer is available in email.rawMsgData
+                if (email.rawMsgData instanceof ArrayBuffer) {
+                    buffer = email.rawMsgData;
+                } else {
+                    console.warn("Raw MSG data (ArrayBuffer) not found in email object. PDF extraction might be limited.");
+                    return [];
+                }
+
+                await extractEmbeddedFiles(buffer); // Run the extraction process
+                return pdfAttachments;
+
+
+                async function extractEmbeddedFiles(buffer) {
+                    pdfAttachments = [];
+                    const uint8Array = new Uint8Array(buffer);
+                    const pdfSignature = [0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E]; // %PDF-1.
+                    const signaturePositions = [];
+                    for (let i = 0; i < uint8Array.length - pdfSignature.length; i++) {
+                        let match = true;
+                        for (let j = 0; j < pdfSignature.length; j++) {
+                            if (uint8Array[i + j] !== pdfSignature[j]) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) {
+                            signaturePositions.push(i);
+                            i += pdfSignature.length;
+                        }
+                    }
+
+                    for (let i = 0; i < signaturePositions.length; i++) {
+                        const startPos = signaturePositions[i];
+                        let endPos;
+                        if (i < signaturePositions.length - 1) {
+                            endPos = signaturePositions[i + 1];
+                        } else {
+                            endPos = Math.min(uint8Array.length, startPos + 10 * 1024 * 1024);
+                        }
+                        await tryExtractValidPdf(uint8Array, startPos, endPos, i + 1);
+                    }
+                }
+
+                async function tryExtractValidPdf(bytes, startPos, maxEndPos, index) {
+                    const { PDFDocument } = PDFLib;
+                    const eofPos = findLastEofMarker(bytes, startPos, maxEndPos);
+                    if (eofPos > startPos) {
+                        try {
+                            const pdfData = bytes.slice(startPos, eofPos);
+                            const pdf = await PDFDocument.load(pdfData);
+                            const pageCount = pdf.getPageCount();
+                            if (pageCount > 0) {
+                                pdfAttachments.push({
+                                    filename: `pdf_attachment_${index}.pdf`,
+                                    content: pdfData.buffer.slice(pdfData.byteOffset, pdfData.byteOffset + pdfData.byteLength),
+                                    startPosition: startPos,
+                                    size: pdfData.length,
+                                    pageCount: pageCount
+                                });
+                                return true;
+                            }
+                        } catch (err) {}
+                    }
+                    const chunkSizes = [100 * 1024, 500 * 1024, 1 * 1024 * 1024, 2 * 1024 * 1024, 5 * 1024 * 1024, 10 * 1024 * 1024];
+                    for (const chunkSize of chunkSizes) {
+                        const endPos = Math.min(startPos + chunkSize, maxEndPos);
+                        try {
+                            const pdfData = bytes.slice(startPos, endPos);
+                            const pdf = await PDFDocument.load(pdfData);
+                            const pageCount = pdf.getPageCount();
+                            if (pageCount > 0) {
+                                pdfAttachments.push({
+                                    filename: `pdf_attachment_${index}.pdf`,
+                                    content: pdfData.buffer.slice(pdfData.byteOffset, pdfData.byteOffset + pdfData.byteLength),
+                                    startPosition: startPos,
+                                    size: pdfData.length,
+                                    pageCount: pageCount
+                                });
+                                return true;
+                            }
+                        } catch (err) {}
+                    }
+                    return false;
+                }
+
+                function findLastEofMarker(bytes, startPos, maxEndPos) {
+                    const eofMarker = [0x25, 0x25, 0x45, 0x4F, 0x46]; // %%EOF
+                    const endLimit = Math.min(maxEndPos, bytes.length);
+                    let lastEofPos = -1;
+                    for (let i = startPos; i < endLimit - eofMarker.length; i++) {
+                        let match = true;
+                        for (let j = 0; j < eofMarker.length; j++) {
+                            if (bytes[i + j] !== eofMarker[j]) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) {
+                            lastEofPos = i + eofMarker.length + 50;
+                        }
+                    }
+                    return lastEofPos > startPos ? lastEofPos : -1;
+                }
+            }
+
+            function displayPdfAttachmentsList(attachments) {
+                pdfAttachmentsListDiv.innerHTML = '';
+                attachmentsContainer.classList.add('hidden');
+                if (attachments.length === 0) {
+                    pdfAttachmentsListDiv.innerHTML = '<p>No PDF attachments found in this email.</p>';
+                } else {
+                    attachmentsContainer.classList.remove('hidden');
+                    attachments.forEach(attachment => {
+                        const attachmentDiv = document.createElement('div');
+                        attachmentDiv.className = 'attachment';
+                        attachmentDiv.innerHTML = `
+                            <span class="attachment-icon">📄</span>
+                            <span>${escapeHtml(attachment.filename)} (${attachment.pageCount} pages, ${Math.round(attachment.size/1024)} KB)</span>
+                        `;
+                        pdfAttachmentsListDiv.appendChild(attachmentDiv);
+                    });
+                }
+            }
+
+
+            // Generate and download combined PDF
+            downloadBtn.addEventListener('click', async function() {
+                if (allEmailData.length === 0) {
+                    showStatus('No email content to generate PDF.', 'error');
+                    return;
+                }
+
+                showLoader(true);
+                downloadBtn.disabled = true;
+                try {
+                    await combineAndDownloadPdf(allEmailData);
+                } catch (error) {
+                    showStatus('Error generating combined PDF: ' + error.message, 'error');
+                    showLoader(false);
+                    downloadBtn.disabled = false;
+                }
+            });
+
+            async function combineAndDownloadPdf(emailDataArray) {
+                const { PDFDocument, PDFPage } = PDFLib;
+                const combinedPdf = await PDFDocument.create();
+
+                for (const emailData of emailDataArray) {
+                    // Embed email content PDF
+                    if (emailData.emailPdfDocument) {
+                        const emailPdfBytes = await emailData.emailPdfDocument.output('arraybuffer');
+                        const embeddedEmailPdf = await PDFDocument.load(emailPdfBytes);
+                        const copiedPages = await combinedPdf.copyPages(embeddedEmailPdf, embeddedEmailPdf.getPageIndices());
+                        copiedPages.forEach(page => combinedPdf.addPage(page));
+                    }
+
+                    // Embed PDF attachments
+                    for (const attachment of emailData.extractedPdfAttachments) {
+                        try {
+                            const attachmentPdf = await PDFDocument.load(attachment.content);
+                            const copiedPages = await combinedPdf.copyPages(attachmentPdf, attachmentPdf.getPageIndices());
+                            copiedPages.forEach(page => combinedPdf.addPage(page));
+                        } catch (attachmentError) {
+                            console.error(`Error embedding attachment ${attachment.filename}:`, attachmentError);
+                            showStatus(`Error embedding attachment ${attachment.filename}: ${attachmentError.message}`, 'error');
+                        }
+                    }
+                }
+
+
+                const combinedPdfBytes = await combinedPdf.save();
+                const filename = `Combined_Emails_and_Attachments_${new Date().getTime()}.pdf`;
+                downloadFile(combinedPdfBytes, filename, 'application/pdf');
+
+                showLoader(false);
+                downloadBtn.disabled = false;
+                showStatus(`Combined PDF "${filename}" has been generated and downloaded.`, 'success');
+            }
+
+
+            function showStatus(message, type) {
+                status.textContent = message;
+                status.className = type;
+                status.classList.remove('hidden');
+            }
+
+            function showLoader(show) {
+                if (show) {
+                    loader.classList.remove('hidden');
+                } else {
+                    loader.classList.add('hidden');
+                }
+            }
+
+            function downloadFile(data, filename, type) {
+                const blob = new Blob([data], { type: type });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+            }
+        });
+    </script>
+</body>
+</html>
