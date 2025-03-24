@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="tool-description" content="Merge GPX traces">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPX Route Merger</title>
+    <title>GPX route merger</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -19,13 +19,66 @@
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .input-group {
-            margin-bottom: 20px;
+        h1 {
+            margin-top: 0;
         }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
+        #drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 25px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            background-color: #f9f9f9;
+        }
+        #drop-zone.drag-over {
+            background-color: #e8f5e9;
+            border-color: #4CAF50;
+        }
+        #file-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            background-color: #fff;
+            cursor: move;
+        }
+        .file-item:hover {
+            background-color: #f9f9f9;
+        }
+        .file-item.dragging {
+            opacity: 0.5;
+            border: 1px dashed #999;
+        }
+        .file-name {
+            flex-grow: 1;
+            margin-left: 10px;
+        }
+        .drag-handle {
+            cursor: grab;
+            padding: 5px;
+            color: #666;
+        }
+        .drag-handle:active {
+            cursor: grabbing;
+        }
+        .remove-file {
+            color: #e57373;
+            cursor: pointer;
+            padding: 5px 10px;
+            background: none;
+            border: none;
+            font-size: 16px;
+        }
+        .remove-file:hover {
+            color: #c62828;
         }
         button {
             background-color: #4CAF50;
@@ -35,10 +88,22 @@
             border-radius: 4px;
             cursor: pointer;
             margin-top: 10px;
+            font-size: 16px;
         }
         button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
+        }
+        .action-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        #file-input {
+            display: none;
+        }
+        .browse-files {
+            background-color: #2196F3;
         }
         #status {
             margin-top: 20px;
@@ -53,85 +118,302 @@
             background-color: #e8f5e9;
             color: #2e7d32;
         }
+        .instructions {
+            margin-bottom: 15px;
+            color: #666;
+        }
+        .file-count {
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>GPX Route Merger</h1>
-        <div class="input-group">
-            <label for="file1">First GPX File:</label>
-            <input type="file" id="file1" accept=".gpx">
+        <p class="instructions">Drag and drop GPX files below, or click to browse. Drag files to rearrange the order.</p>
+        
+        <div id="drop-zone">
+            <div>Drop GPX files here</div>
+            <div>or</div>
+            <button class="browse-files">Browse files</button>
+            <input type="file" id="file-input" multiple accept=".gpx">
         </div>
-        <div class="input-group">
-            <label for="file2">Second GPX File:</label>
-            <input type="file" id="file2" accept=".gpx">
+        
+        <div id="file-container" style="display: none;">
+            <div class="file-count">Files to merge: <span id="file-count">0</span></div>
+            <ul id="file-list"></ul>
         </div>
-        <button id="mergeButton" disabled>Merge Routes</button>
+        
+        <div class="action-buttons">
+            <button id="mergeButton" disabled>Merge routes</button>
+            <button id="clearButton" class="clear-button" style="background-color: #f44336;">Clear all</button>
+        </div>
+        
         <div id="status"></div>
     </div>
 
     <script>
-        let gpxFile1Content = null;
-        let gpxFile2Content = null;
-
-        function updateMergeButtonState() {
-            const mergeButton = document.getElementById('mergeButton');
-            mergeButton.disabled = !(gpxFile1Content && gpxFile2Content);
+        // Store file objects and their contents
+        const fileStore = [];
+        
+        // DOM elements
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileList = document.getElementById('file-list');
+        const fileContainer = document.getElementById('file-container');
+        const fileCountDisplay = document.getElementById('file-count');
+        const mergeButton = document.getElementById('mergeButton');
+        const clearButton = document.getElementById('clearButton');
+        const browseButton = document.querySelector('.browse-files');
+        
+        // Drag and drop for file upload
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
         }
-
-        function handleFileUpload(file, isFirstFile) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const content = e.target.result;
-                    if (isFirstFile) {
-                        gpxFile1Content = content;
-                    } else {
-                        gpxFile2Content = content;
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.add('drag-over');
+            }, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.remove('drag-over');
+            }, false);
+        });
+        
+        dropZone.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        }
+        
+        // Handle file selection via browse button
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+        
+        browseButton.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        // Process the files
+        function handleFiles(files) {
+            if (files.length === 0) return;
+            
+            [...files].forEach(file => {
+                if (file.name.toLowerCase().endsWith('.gpx')) {
+                    addFileToList(file);
+                } else {
+                    showStatus(`"${file.name}" is not a GPX file`, 'error');
+                }
+            });
+            
+            updateFileCount();
+            updateMergeButtonState();
+        }
+        
+        // Add a file to the list and read its content
+        function addFileToList(file) {
+            // Check if the file is already in the list
+            const isDuplicate = fileStore.some(f => f.name === file.name && f.size === file.size);
+            if (isDuplicate) {
+                showStatus(`"${file.name}" is already in the list`, 'error');
+                return;
+            }
+            
+            const fileObj = {
+                file: file,
+                name: file.name,
+                size: file.size,
+                content: null
+            };
+            
+            // Read the file content
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                fileObj.content = e.target.result;
+                updateMergeButtonState();
+            };
+            reader.onerror = () => {
+                showStatus(`Error reading "${file.name}"`, 'error');
+            };
+            reader.readAsText(file);
+            
+            // Add to store
+            fileStore.push(fileObj);
+            
+            // Create list item
+            const li = document.createElement('li');
+            li.className = 'file-item';
+            li.dataset.fileName = file.name;
+            li.innerHTML = `
+                <div class="drag-handle">☰</div>
+                <div class="file-name">${file.name}</div>
+                <button class="remove-file" title="Remove file">×</button>
+            `;
+            
+            // Add remove handler
+            li.querySelector('.remove-file').addEventListener('click', () => {
+                removeFile(file.name);
+                li.remove();
+                updateFileCount();
+                updateMergeButtonState();
+            });
+            
+            // Add to DOM
+            fileList.appendChild(li);
+            fileContainer.style.display = 'block';
+            
+            // Make the list item draggable
+            setupDragForItem(li);
+        }
+        
+        // Setup drag-and-drop reordering for a list item
+        function setupDragForItem(item) {
+            const dragHandle = item.querySelector('.drag-handle');
+            
+            dragHandle.addEventListener('mousedown', (e) => {
+                // Prevent default to avoid text selection
+                e.preventDefault();
+                
+                // Get initial position
+                const initialY = e.clientY;
+                const initialIndex = Array.from(fileList.children).indexOf(item);
+                
+                // Add dragging class
+                item.classList.add('dragging');
+                
+                // Track mouse movement
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+                
+                function onMouseMove(e) {
+                    const currentY = e.clientY;
+                    const items = Array.from(fileList.children);
+                    const itemHeight = item.offsetHeight;
+                    
+                    // Calculate how many positions to move
+                    const moveBy = Math.round((currentY - initialY) / itemHeight);
+                    let newIndex = initialIndex + moveBy;
+                    
+                    // Ensure within bounds
+                    newIndex = Math.max(0, Math.min(items.length - 1, newIndex));
+                    
+                    if (newIndex !== initialIndex) {
+                        // Move the item in the DOM
+                        if (newIndex < items.length - 1) {
+                            fileList.insertBefore(item, items[newIndex + (newIndex > initialIndex ? 1 : 0)]);
+                        } else {
+                            fileList.appendChild(item);
+                        }
+                        
+                        // Update the store array
+                        const fileObj = fileStore.splice(initialIndex, 1)[0];
+                        fileStore.splice(newIndex, 0, fileObj);
                     }
-                    updateMergeButtonState();
-                    resolve();
-                };
-                reader.onerror = () => reject(new Error('Error reading file'));
-                reader.readAsText(file);
+                }
+                
+                function onMouseUp() {
+                    // Clean up
+                    item.classList.remove('dragging');
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                }
             });
         }
-
+        
+        // Remove a file from the store
+        function removeFile(fileName) {
+            const index = fileStore.findIndex(f => f.name === fileName);
+            if (index !== -1) {
+                fileStore.splice(index, 1);
+            }
+        }
+        
+        // Update the file counter
+        function updateFileCount() {
+            fileCountDisplay.textContent = fileStore.length;
+        }
+        
+        // Update merge button state
+        function updateMergeButtonState() {
+            mergeButton.disabled = fileStore.length < 2 || fileStore.some(f => f.content === null);
+        }
+        
+        // Clear all files
+        clearButton.addEventListener('click', () => {
+            fileStore.length = 0;
+            fileList.innerHTML = '';
+            fileContainer.style.display = 'none';
+            updateFileCount();
+            updateMergeButtonState();
+            showStatus('All files cleared', 'success');
+        });
+        
+        // Merge GPX files
+        mergeButton.addEventListener('click', mergeGPXFiles);
+        
         function mergeGPXFiles() {
             try {
-                // Parse first GPX file
-                const parser = new DOMParser();
-                const gpx1 = parser.parseFromString(gpxFile1Content, "text/xml");
-                const gpx2 = parser.parseFromString(gpxFile2Content, "text/xml");
-
-                // Get track points from both files
-                const trackPoints1 = gpx1.querySelectorAll('trkpt');
-                const trackPoints2 = gpx2.querySelectorAll('trkpt');
-
+                if (fileStore.length < 2) {
+                    throw new Error('At least 2 GPX files are required for merging');
+                }
+                
                 // Create new GPX document
                 const mergedGpx = document.implementation.createDocument(null, "gpx", null);
                 const gpxRoot = mergedGpx.documentElement;
                 gpxRoot.setAttribute("version", "1.1");
-                gpxRoot.setAttribute("creator", "GPX Merger");
+                gpxRoot.setAttribute("creator", "Enhanced GPX Merger");
                 gpxRoot.setAttribute("xmlns", "http://www.topografix.com/GPX/1/1");
-
+                
                 // Create track element
                 const trk = mergedGpx.createElement("trk");
                 const trkseg = mergedGpx.createElement("trkseg");
-
-                // Add points from first file
-                trackPoints1.forEach(point => {
-                    trkseg.appendChild(mergedGpx.importNode(point, true));
+                
+                // Add metadata
+                const metadata = mergedGpx.createElement("metadata");
+                const name = mergedGpx.createElement("name");
+                const desc = mergedGpx.createElement("desc");
+                const time = mergedGpx.createElement("time");
+                
+                name.textContent = "Merged GPX Route";
+                desc.textContent = `Created by merging ${fileStore.length} GPX files`;
+                time.textContent = new Date().toISOString();
+                
+                metadata.appendChild(name);
+                metadata.appendChild(desc);
+                metadata.appendChild(time);
+                gpxRoot.appendChild(metadata);
+                
+                const parser = new DOMParser();
+                
+                // Process each file in the order they appear in the UI
+                fileStore.forEach(fileObj => {
+                    const gpxDoc = parser.parseFromString(fileObj.content, "text/xml");
+                    
+                    // Get track points
+                    const trackPoints = gpxDoc.querySelectorAll('trkpt');
+                    
+                    // Add points to the merged track
+                    trackPoints.forEach(point => {
+                        trkseg.appendChild(mergedGpx.importNode(point, true));
+                    });
                 });
-
-                // Add points from second file
-                trackPoints2.forEach(point => {
-                    trkseg.appendChild(mergedGpx.importNode(point, true));
-                });
-
+                
+                // Add track elements to document
                 trk.appendChild(trkseg);
                 gpxRoot.appendChild(trk);
-
+                
                 // Convert to string and create download
                 const serializer = new XMLSerializer();
                 const mergedGpxString = serializer.serializeToString(mergedGpx);
@@ -145,35 +427,27 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-
-                showStatus('Routes merged successfully!', 'success');
+                
+                showStatus(`Successfully merged ${fileStore.length} GPX files!`, 'success');
             } catch (error) {
                 showStatus('Error merging GPX files: ' + error.message, 'error');
             }
         }
-
+        
+        // Display status messages
         function showStatus(message, type) {
             const status = document.getElementById('status');
             status.textContent = message;
             status.className = type;
+            
+            // Auto-hide success messages after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    status.textContent = '';
+                    status.className = '';
+                }, 5000);
+            }
         }
-
-        // Event Listeners
-        document.getElementById('file1').addEventListener('change', (e) => {
-            if (e.target.files[0]) {
-                handleFileUpload(e.target.files[0], true)
-                    .catch(error => showStatus(error.message, 'error'));
-            }
-        });
-
-        document.getElementById('file2').addEventListener('change', (e) => {
-            if (e.target.files[0]) {
-                handleFileUpload(e.target.files[0], false)
-                    .catch(error => showStatus(error.message, 'error'));
-            }
-        });
-
-        document.getElementById('mergeButton').addEventListener('click', mergeGPXFiles);
     </script>
 </body>
 </html>
