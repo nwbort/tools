@@ -137,6 +137,29 @@
             background: #f3f4f6;
             border-radius: 0.25rem;
             font-size: 0.875rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .apply-to-all {
+            background: #4b5563;
+            color: white;
+            border: none;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: none;
+        }
+
+        .apply-to-all:hover {
+            background: #374151;
+        }
+
+        .has-location .apply-to-all {
+            display: block;
         }
 
         .pick-location-btn {
@@ -157,6 +180,15 @@
         .actions {
             margin-top: 2rem;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .actions-row {
+            display: flex;
+            gap: 1rem;
         }
 
         button#exportBtn {
@@ -176,6 +208,26 @@
 
         button#exportBtn:disabled {
             background: #93c5fd;
+            cursor: not-allowed;
+        }
+
+        .bulk-action-btn {
+            background: #6b7280;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .bulk-action-btn:hover {
+            background: #4b5563;
+        }
+
+        .bulk-action-btn:disabled {
+            background: #d1d5db;
             cursor: not-allowed;
         }
 
@@ -256,9 +308,37 @@
             cursor: not-allowed;
         }
 
+        .toast {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            background: #111827;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.25rem;
+            opacity: 0;
+            transform: translateY(1rem);
+            transition: opacity 0.3s, transform 0.3s;
+            z-index: 1001;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
         @media (max-width: 640px) {
             .photo-entry {
                 grid-template-columns: 1fr;
+            }
+            
+            .actions-row {
+                flex-direction: column;
+                width: 100%;
+            }
+            
+            .bulk-action-btn {
+                width: 100%;
             }
         }
     </style>
@@ -285,6 +365,9 @@
         <div id="photoList" class="photo-list"></div>
 
         <div class="actions">
+            <div class="actions-row">
+                <button id="bulkLocationBtn" class="bulk-action-btn" disabled>Set location for all photos</button>
+            </div>
             <button id="exportBtn" disabled>Update EXIF data & download</button>
         </div>
     </div>
@@ -293,7 +376,7 @@
     <div id="mapModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Pick location</h2>
+                <h2 id="mapModalTitle">Pick location</h2>
                 <button class="close-btn">&times;</button>
             </div>
             <div id="map"></div>
@@ -305,6 +388,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast">Location applied to all photos</div>
 
     <!-- Load libraries -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -424,15 +510,19 @@
         let photos = [];
         const photoList = document.getElementById('photoList');
         const exportBtn = document.getElementById('exportBtn');
+        const bulkLocationBtn = document.getElementById('bulkLocationBtn');
         const mapModal = document.getElementById('mapModal');
+        const mapModalTitle = document.getElementById('mapModalTitle');
         const confirmLocationBtn = document.getElementById('confirmLocation');
         const selectedCoordsSpan = document.getElementById('selectedCoords');
+        const toast = document.getElementById('toast');
 
         // Map variables
         let map = null;
         let marker = null;
         let selectedLocation = null;
         let activePhotoEntry = null;
+        let isBulkLocationMode = false;
 
         // Initialize map
         function initMap() {
@@ -457,6 +547,15 @@
                 selectedCoordsSpan.textContent = `${lat}, ${lng}`;
                 confirmLocationBtn.disabled = false;
             });
+        }
+
+        // Show toast notification
+        function showToast(message) {
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
         }
 
         // Handle photo upload
@@ -487,13 +586,15 @@
             // Add photos to the list
             photos.forEach(addPhotoToList);
             updateExportButton();
+            updateBulkLocationButton();
         });
 
         // Add a photo entry to the list
-        function addPhotoToList(photo) {
+        function addPhotoToList(photo, index) {
             // Create photo entry container
             const container = document.createElement('div');
             container.className = 'photo-entry';
+            container.dataset.index = index;
             
             // Create photo preview
             const previewImg = document.createElement('img');
@@ -543,13 +644,27 @@
             const coordsText = document.createElement('span');
             coordsText.className = 'coords-text';
             coordsText.textContent = 'No location selected';
+            
+            const applyToAllBtn = document.createElement('button');
+            applyToAllBtn.className = 'apply-to-all';
+            applyToAllBtn.textContent = 'Apply to all';
+            applyToAllBtn.addEventListener('click', () => {
+                if (photo.metadata.location.latitude !== null && 
+                    photo.metadata.location.longitude !== null) {
+                    applyLocationToAllPhotos(photo.metadata.location);
+                }
+            });
+            
             coordsDisplay.appendChild(coordsText);
+            coordsDisplay.appendChild(applyToAllBtn);
             
             const pickLocationBtn = document.createElement('button');
             pickLocationBtn.className = 'pick-location-btn';
             pickLocationBtn.textContent = 'Pick location on map';
             pickLocationBtn.addEventListener('click', () => {
-                activePhotoEntry = { photo, coordsText };
+                activePhotoEntry = { photo, coordsText, coordsDisplay };
+                isBulkLocationMode = false;
+                mapModalTitle.textContent = 'Pick location for this photo';
                 showMapModal();
             });
             
@@ -559,6 +674,27 @@
             
             container.appendChild(detailsDiv);
             photoList.appendChild(container);
+        }
+
+        // Apply a location to all photos
+        function applyLocationToAllPhotos(location) {
+            photos.forEach(photo => {
+                photo.metadata.location = {
+                    latitude: location.latitude,
+                    longitude: location.longitude
+                };
+            });
+            
+            // Update all coordinate displays
+            const coordsDisplays = document.querySelectorAll('.coordinates-display');
+            coordsDisplays.forEach(display => {
+                const coordsText = display.querySelector('.coords-text');
+                coordsText.textContent = `${location.latitude}, ${location.longitude}`;
+                display.parentElement.classList.add('has-location');
+            });
+            
+            updateExportButton();
+            showToast('Location applied to all photos');
         }
 
         // Show map modal
@@ -571,18 +707,31 @@
                 marker.remove();
                 marker = null;
             }
+            
             selectedLocation = null;
             confirmLocationBtn.disabled = true;
             selectedCoordsSpan.textContent = 'Click on the map to select a location';
             
-            // Center map on current location if available
-            if ('geolocation' in navigator) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        map.setView([position.coords.latitude, position.coords.longitude], 13);
-                    },
-                    () => {} // Silently fail and keep default location
-                );
+            // If we have a selected location (from activePhotoEntry), set the marker and center map
+            if (!isBulkLocationMode && activePhotoEntry && 
+                activePhotoEntry.photo.metadata.location.latitude !== null) {
+                const { latitude, longitude } = activePhotoEntry.photo.metadata.location;
+                const latlng = L.latLng(latitude, longitude);
+                map.setView(latlng, 13);
+                marker = L.marker(latlng).addTo(map);
+                selectedLocation = { latitude, longitude };
+                selectedCoordsSpan.textContent = `${latitude}, ${longitude}`;
+                confirmLocationBtn.disabled = false;
+            } else {
+                // Center map on current location if available
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            map.setView([position.coords.latitude, position.coords.longitude], 13);
+                        },
+                        () => {} // Silently fail and keep default location
+                    );
+                }
             }
             
             // Force map to update size after becoming visible
@@ -603,14 +752,39 @@
 
         // Handle location confirmation
         confirmLocationBtn.addEventListener('click', () => {
-            if (activePhotoEntry && selectedLocation) {
-                activePhotoEntry.photo.metadata.location = selectedLocation;
-                activePhotoEntry.coordsText.textContent = 
-                    `${selectedLocation.latitude}, ${selectedLocation.longitude}`;
+            if (selectedLocation) {
+                if (isBulkLocationMode) {
+                    // Apply to all photos
+                    applyLocationToAllPhotos(selectedLocation);
+                } else if (activePhotoEntry) {
+                    // Apply to single photo
+                    activePhotoEntry.photo.metadata.location = selectedLocation;
+                    activePhotoEntry.coordsText.textContent = 
+                        `${selectedLocation.latitude}, ${selectedLocation.longitude}`;
+                    activePhotoEntry.coordsDisplay.parentElement.classList.add('has-location');
+                }
+                
                 mapModal.style.display = 'none';
                 updateExportButton();
+                updateBulkLocationButton();
             }
         });
+
+        // Handle bulk location button
+        bulkLocationBtn.addEventListener('click', () => {
+            isBulkLocationMode = true;
+            activePhotoEntry = null;
+            mapModalTitle.textContent = 'Pick location for all photos';
+            showMapModal();
+        });
+
+        // Check if any photo has a location set
+        function anyPhotoHasLocation() {
+            return photos.some(photo => 
+                photo.metadata.location.latitude !== null && 
+                photo.metadata.location.longitude !== null
+            );
+        }
 
         // Check if all required data is filled
         function checkPhotoData() {
@@ -624,6 +798,11 @@
         // Update export button state
         function updateExportButton() {
             exportBtn.disabled = !photos.length || !checkPhotoData();
+        }
+
+        // Update bulk location button state
+        function updateBulkLocationButton() {
+            bulkLocationBtn.disabled = !photos.length;
         }
 
         // Handle export button click
