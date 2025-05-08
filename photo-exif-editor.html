@@ -118,12 +118,33 @@
             color: #666;
         }
 
+        .datetime-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
         input[type="datetime-local"] {
-            width: 100%;
+            flex-grow: 1;
             padding: 0.5rem;
             border: 1px solid #ccc;
             border-radius: 0.25rem;
             font-size: 0.875rem;
+        }
+
+        .apply-time-to-all {
+            background: #4b5563;
+            color: white;
+            border: none;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .apply-time-to-all:hover {
+            background: #374151;
         }
 
         .location-group {
@@ -367,6 +388,7 @@
         <div class="actions">
             <div class="actions-row">
                 <button id="bulkLocationBtn" class="bulk-action-btn" disabled>Set location for all photos</button>
+                <button id="bulkTimeBtn" class="bulk-action-btn" disabled>Set time for all photos</button>
             </div>
             <button id="exportBtn" disabled>Update EXIF data & download</button>
         </div>
@@ -390,7 +412,24 @@
     </div>
 
     <!-- Toast notification -->
-    <div id="toast" class="toast">Location applied to all photos</div>
+    <div id="toast" class="toast">Applied to all photos</div>
+    
+    <!-- Time Modal -->
+    <div id="timeModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Set time for all photos</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div style="padding: 1rem;">
+                <p style="margin-bottom: 1rem;">Select date and time to apply to all photos:</p>
+                <input type="datetime-local" id="bulkTimeInput" step="1" style="width: 100%;">
+            </div>
+            <div class="modal-footer">
+                <button id="confirmTime" class="bulk-action-btn">Apply to all photos</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Load libraries -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -511,9 +550,13 @@
         const photoList = document.getElementById('photoList');
         const exportBtn = document.getElementById('exportBtn');
         const bulkLocationBtn = document.getElementById('bulkLocationBtn');
+        const bulkTimeBtn = document.getElementById('bulkTimeBtn');
         const mapModal = document.getElementById('mapModal');
+        const timeModal = document.getElementById('timeModal');
         const mapModalTitle = document.getElementById('mapModalTitle');
         const confirmLocationBtn = document.getElementById('confirmLocation');
+        const confirmTimeBtn = document.getElementById('confirmTime');
+        const bulkTimeInput = document.getElementById('bulkTimeInput');
         const selectedCoordsSpan = document.getElementById('selectedCoords');
         const toast = document.getElementById('toast');
 
@@ -620,6 +663,9 @@
             const dateLabel = document.createElement('label');
             dateLabel.textContent = 'Date/Time:';
             
+            const datetimeContainer = document.createElement('div');
+            datetimeContainer.className = 'datetime-container';
+            
             const datetimeInput = document.createElement('input');
             datetimeInput.type = 'datetime-local';
             datetimeInput.className = 'datetime-input';
@@ -630,7 +676,17 @@
                 updateExportButton();
             });
             
-            dateLabel.appendChild(datetimeInput);
+            const applyTimeToAllBtn = document.createElement('button');
+            applyTimeToAllBtn.className = 'apply-time-to-all';
+            applyTimeToAllBtn.textContent = 'Apply to all';
+            applyTimeToAllBtn.addEventListener('click', () => {
+                applyTimeToAllPhotos(photo.metadata.timestamp);
+            });
+            
+            datetimeContainer.appendChild(datetimeInput);
+            datetimeContainer.appendChild(applyTimeToAllBtn);
+            
+            dateLabel.appendChild(datetimeContainer);
             inputGroup.appendChild(dateLabel);
             detailsDiv.appendChild(inputGroup);
             
@@ -743,11 +799,19 @@
             mapModal.style.display = 'none';
         });
 
-        // Close modal if clicking outside
+        // Close modals if clicking outside
         window.addEventListener('click', (e) => {
             if (e.target === mapModal) {
                 mapModal.style.display = 'none';
             }
+            if (e.target === timeModal) {
+                timeModal.style.display = 'none';
+            }
+        });
+        
+        // Close buttons for time modal
+        timeModal.querySelector('.close-btn').addEventListener('click', () => {
+            timeModal.style.display = 'none';
         });
 
         // Handle location confirmation
@@ -800,10 +864,42 @@
             exportBtn.disabled = !photos.length || !checkPhotoData();
         }
 
-        // Update bulk location button state
+        // Update bulk action buttons state
         function updateBulkLocationButton() {
             bulkLocationBtn.disabled = !photos.length;
+            bulkTimeBtn.disabled = !photos.length;
         }
+        
+        // Apply a timestamp to all photos
+        function applyTimeToAllPhotos(timestamp) {
+            photos.forEach(photo => {
+                photo.metadata.timestamp = timestamp;
+            });
+            
+            // Update all datetime inputs
+            const datetimeInputs = document.querySelectorAll('.datetime-input');
+            const dateValue = new Date(timestamp).toISOString().slice(0, 19);
+            datetimeInputs.forEach(input => {
+                input.value = dateValue;
+            });
+            
+            updateExportButton();
+            showToast('Time applied to all photos');
+        }
+        
+        // Handle bulk time button
+        bulkTimeBtn.addEventListener('click', () => {
+            // Set current time as default
+            bulkTimeInput.value = new Date().toISOString().slice(0, 19);
+            timeModal.style.display = 'block';
+        });
+        
+        // Handle time confirmation
+        confirmTimeBtn.addEventListener('click', () => {
+            const timestamp = new Date(bulkTimeInput.value).toISOString();
+            applyTimeToAllPhotos(timestamp);
+            timeModal.style.display = 'none';
+        });
 
         // Handle export button click
         exportBtn.addEventListener('click', async () => {
