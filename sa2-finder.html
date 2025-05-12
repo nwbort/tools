@@ -1,0 +1,211 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="tool-description" content="Click to identify SA2 details">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SA2 Region Finder</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header {
+            background-color: #3498db;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+        }
+        .content {
+            display: flex;
+            flex: 1;
+        }
+        #map {
+            flex: 1;
+        }
+        .info-panel {
+            width: 300px;
+            padding: 20px;
+            background-color: #f5f5f5;
+            overflow-y: auto;
+        }
+        .info-panel h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        #result {
+            margin-top: 20px;
+        }
+        .loading {
+            display: none;
+            margin-top: 20px;
+            color: #666;
+        }
+        .loading.visible {
+            display: block;
+        }
+        .info-box {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .info-row {
+            display: flex;
+            margin-bottom: 8px;
+        }
+        .info-label {
+            font-weight: bold;
+            width: 100px;
+        }
+        .info-value {
+            flex: 1;
+        }
+        .instructions {
+            margin-bottom: 20px;
+            line-height: 1.4;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                flex-direction: column;
+            }
+            .info-panel {
+                width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>SA2 Region Finder</h1>
+    </div>
+    <div class="content">
+        <div id="map"></div>
+        <div class="info-panel">
+            <h2>SA2 Information</h2>
+            <div class="instructions">
+                Click anywhere on the map to find out which SA2 region covers that location.
+            </div>
+            <div id="loading" class="loading">
+                Loading region data...
+            </div>
+            <div id="result"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize the map centered on Australia
+        const map = L.map('map').setView([-25.2744, 133.7751], 4);
+        
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Add a marker that will be placed at the clicked location
+        let marker = null;
+        
+        // Updated ABS Geoserver WFS endpoint for SA2 boundaries
+        const abs_geoserver_url = 'https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/SA2/MapServer/0/query';
+        
+        // Function to find SA2 region for a clicked location
+        async function findSA2Region(lat, lng) {
+            document.getElementById('loading').classList.add('visible');
+            document.getElementById('result').innerHTML = '';
+            
+            try {
+                // Build the query URL for the ABS geoserver
+                const queryUrl = `${abs_geoserver_url}?geometry=${lng},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
+                
+                const response = await fetch(queryUrl);
+                const data = await response.json();
+                
+                if (data.features && data.features.length > 0) {
+                    const sa2 = data.features[0].attributes;
+                    displaySA2Info(sa2);
+                } else {
+                    document.getElementById('result').innerHTML = '<div class="info-box">No SA2 region found at this location. The location might be outside of Australia or in an uncovered area.</div>';
+                }
+            } catch (error) {
+                console.error('Error fetching SA2 data:', error);
+                document.getElementById('result').innerHTML = `<div class="info-box">Error: ${error.message}. Please try again later.</div>`;
+            } finally {
+                document.getElementById('loading').classList.remove('visible');
+            }
+        }
+        
+        // Function to display SA2 information
+        function displaySA2Info(sa2) {
+            let html = '<div class="info-box">';
+            
+            // Map the most important attributes to more readable names
+            // Updated to match the actual field names from the API response
+            const fields = {
+                'sa2_name_2021': 'SA2 Name',
+                'sa2_code_2021': 'SA2 Code',
+                'sa3_name_2021': 'SA3 Name',
+                'sa4_name_2021': 'SA4 Name',
+                'gccsa_name_2021': 'Greater Capital City',
+                'state_name_2021': 'State',
+                'area_albers_sqkm': 'Area (sq km)'
+            };
+            
+            // Display the mapped fields and their values
+            for (const [key, label] of Object.entries(fields)) {
+                if (sa2[key] !== undefined) {
+                    let value = sa2[key];
+                    
+                    // Format area to 2 decimal places if it's a number
+                    if (key === 'area_albers_sqkm' && !isNaN(value)) {
+                        value = parseFloat(value).toFixed(2);
+                    }
+                    
+                    html += `
+                    <div class="info-row">
+                        <div class="info-label">${label}:</div>
+                        <div class="info-value">${value}</div>
+                    </div>`;
+                }
+            }
+
+            // Add a link to the ASGS Loci URI if available
+            if (sa2['asgs_loci_uri_2021']) {
+                html += `
+                <div class="info-row" style="margin-top: 15px;">
+                    <a href="${sa2['asgs_loci_uri_2021']}" target="_blank">View official ABS data</a>
+                </div>`;
+            }
+            
+            html += '</div>';
+            document.getElementById('result').innerHTML = html;
+        }
+        
+        // Handle map clicks
+        map.on('click', async function(e) {
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
+            
+            // Update or create the marker
+            if (marker) {
+                marker.setLatLng(e.latlng);
+            } else {
+                marker = L.marker(e.latlng).addTo(map);
+            }
+            
+            // Find and display the SA2 region
+            await findSA2Region(lat, lng);
+        });
+    </script>
+</body>
+</html>
