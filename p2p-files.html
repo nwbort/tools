@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="tool-description" content="Send files P2P over local network">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="tool-description" content="Send files P2P over local network">
     <title>Direct P2P File Transfer</title>
     <style>
         body {
@@ -180,37 +180,60 @@
         const fileList = document.getElementById('fileList');
         const sendProgress = document.getElementById('sendProgress');
         
+        // Check WebRTC support
+        function checkWebRTCSupport() {
+            if (typeof RTCPeerConnection === 'undefined') {
+                alert('Your browser does not support WebRTC. Please use a modern browser like Chrome, Firefox, Safari, or Edge.');
+                return false;
+            }
+            return true;
+        }
+
         // Event listeners
-        createBtn.addEventListener('click', createConnection);
+        createBtn.addEventListener('click', function() {
+            if (checkWebRTCSupport()) {
+                createConnection();
+            }
+        });
         copyOfferBtn.addEventListener('click', copyOffer);
         connectBtn.addEventListener('click', connectToPeer);
         sendFileBtn.addEventListener('click', sendFile);
         
         // Function to create a new WebRTC connection as the initiator
         function createConnection() {
-            updateConnectionStatus('Creating connection...', 'connecting');
-            
-            // Create peer connection
-            peerConnection = new RTCPeerConnection(configuration);
-            
-            // Create data channel
-            dataChannel = peerConnection.createDataChannel('fileTransfer');
-            setupDataChannel(dataChannel);
-            
-            // Handle ICE candidates
-            peerConnection.onicecandidate = event => {
-                if (event.candidate === null) {
-                    // ICE gathering completed, show the offer
-                    const offer = JSON.stringify(peerConnection.localDescription);
-                    localOffer.value = btoa(offer); // Base64 encode for easier sharing
-                    localOfferArea.style.display = 'block';
-                }
-            };
-            
-            // Create and set local description
-            peerConnection.createOffer()
-                .then(offer => peerConnection.setLocalDescription(offer))
-                .catch(error => console.error('Error creating offer:', error));
+            try {
+                updateConnectionStatus('Creating connection...', 'connecting');
+                
+                // Create peer connection
+                peerConnection = new RTCPeerConnection(configuration);
+                
+                // Create data channel
+                dataChannel = peerConnection.createDataChannel('fileTransfer');
+                setupDataChannel(dataChannel);
+                
+                // Handle ICE candidates
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate === null) {
+                        // ICE gathering completed, show the offer
+                        const offer = JSON.stringify(peerConnection.localDescription);
+                        localOffer.value = btoa(offer); // Base64 encode for easier sharing
+                        localOfferArea.style.display = 'block';
+                    }
+                };
+                
+                // Create and set local description
+                peerConnection.createOffer()
+                    .then(offer => peerConnection.setLocalDescription(offer))
+                    .catch(error => {
+                        console.error('Error creating offer:', error);
+                        alert('Error creating connection offer: ' + error.message);
+                        updateConnectionStatus('Connection failed', 'disconnected');
+                    });
+            } catch (error) {
+                console.error('Error creating connection:', error);
+                alert('Error creating connection: ' + error.message);
+                updateConnectionStatus('Connection failed', 'disconnected');
+            }
         }
         
         // Function to connect to another peer using their offer
@@ -298,4 +321,127 @@
                     receivedFileType = metadata.fileType;
                     receivedFileSize = metadata.size;
                     
-                    console.log(`Receiving file: ${receivedFileName} (${receivedF
+                    console.log(`Receiving file: ${receivedFileName} (${receivedFileSize} bytes)`);
+                } else if (metadata.type === 'file-end') {
+                    // File transfer completed, assemble and display
+                    const fileBlob = new Blob(receivedFileChunks, { type: receivedFileType });
+                    displayReceivedFile(fileBlob, receivedFileName, receivedFileSize);
+                    
+                    // Reset
+                    receivedFileChunks = [];
+                }
+            } else {
+                // This is a chunk of the file
+                receivedFileChunks.push(data);
+            }
+        }
+        
+        // Send a file
+        function sendFile() {
+            if (!dataChannel || dataChannel.readyState !== 'open') {
+                alert('No connection available. Please connect first.');
+                return;
+            }
+            
+            currentFile = fileInput.files[0];
+            if (!currentFile) {
+                alert('Please select a file to send.');
+                return;
+            }
+            
+            // Send file metadata
+            const metadata = {
+                type: 'file-start',
+                name: currentFile.name,
+                fileType: currentFile.type,
+                size: currentFile.size
+            };
+            
+            dataChannel.send(JSON.stringify(metadata));
+            
+            // Start reading and sending the file
+            const chunkSize = 16384; // 16KB chunks
+            fileReader = new FileReader();
+            let offset = 0;
+            
+            fileReader.addEventListener('load', event => {
+                dataChannel.send(event.target.result);
+                offset += event.target.result.byteLength;
+                
+                // Update progress
+                const progress = Math.min(100, Math.round((offset / currentFile.size) * 100));
+                sendProgress.textContent = `Sending: ${progress}%`;
+                
+                // Check if we've sent the entire file
+                if (offset < currentFile.size) {
+                    readSlice(offset);
+                } else {
+                    // File transfer completed
+                    const endMessage = {
+                        type: 'file-end'
+                    };
+                    dataChannel.send(JSON.stringify(endMessage));
+                    sendProgress.textContent = `Sent: ${currentFile.name}`;
+                }
+            });
+            
+            const readSlice = o => {
+                const slice = currentFile.slice(o, o + chunkSize);
+                fileReader.readAsArrayBuffer(slice);
+            };
+            
+            readSlice(0);
+        }
+        
+        // Display a received file
+        function displayReceivedFile(blob, fileName, fileSize) {
+            const fileUrl = URL.createObjectURL(blob);
+            
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            
+            const fileInfo = document.createElement('div');
+            fileInfo.textContent = `${fileName} (${formatFileSize(fileSize)})`;
+            
+            const downloadLink = document.createElement('a');
+            downloadLink.href = fileUrl;
+            downloadLink.download = fileName;
+            downloadLink.textContent = 'Download';
+            downloadLink.className = 'download-btn';
+            
+            fileItem.appendChild(fileInfo);
+            fileItem.appendChild(downloadLink);
+            
+            if (fileList.textContent === 'No files received yet') {
+                fileList.textContent = '';
+            }
+            
+            fileList.appendChild(fileItem);
+        }
+        
+        // Format file size to human-readable format
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' bytes';
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
+            else if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + ' MB';
+            else return (bytes / 1073741824).toFixed(2) + ' GB';
+        }
+        
+        // Update connection status display
+        function updateConnectionStatus(message, statusClass) {
+            connectionStatus.textContent = 'Status: ' + message;
+            connectionStatus.className = 'connection-status ' + statusClass;
+        }
+        
+        // Copy offer to clipboard
+        function copyOffer() {
+            localOffer.select();
+            document.execCommand('copy');
+            copyOfferBtn.textContent = 'Copied!';
+            setTimeout(() => {
+                copyOfferBtn.textContent = 'Copy code';
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
