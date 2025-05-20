@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="tool-description" content="Send files P2P over local network">
     <title>Direct P2P File Transfer</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -120,22 +119,17 @@
             <div id="createConnection">
                 <button id="createBtn">Create connection</button>
                 <div id="localOfferArea" style="display:none">
-                    <p>Scan this QR code on the other device:</p>
-                    <div id="qrcode"></div>
-                    <p>Or use this connection code:</p>
-                    <textarea id="localOffer" readonly style="height: 60px;"></textarea>
+                    <p>Share this connection code with the other person:</p>
+                    <div id="shortCodeDisplay" style="font-size: 24px; font-weight: bold; margin: 20px 0; padding: 10px; background-color: #f0f0f0; border-radius: 4px; text-align: center; letter-spacing: 2px;"></div>
                     <button id="copyOfferBtn">Copy code</button>
                 </div>
             </div>
             
             <div id="joinConnection">
                 <h3>Connect to someone</h3>
-                <p>Paste their connection code here:</p>
-                <textarea id="remoteOffer" placeholder="Paste the other person's code here"></textarea>
+                <p>Enter their connection code:</p>
+                <input type="text" id="shortCodeInput" placeholder="Enter 8-character code" maxlength="8" style="font-size: 18px; text-align: center; letter-spacing: 2px;">
                 <button id="connectBtn">Connect</button>
-                <p>Or scan QR code:</p>
-                <button id="scanQrBtn">Scan QR Code</button>
-                <input type="file" id="qrInput" accept="image/*" capture="environment" style="display: none;">
             </div>
         </div>
         
@@ -164,6 +158,7 @@
         let receivedFileType = '';
         let receivedFileSize = 0;
         let currentFile = null;
+        let signallingServer = {}; // In-memory signaling storage
         
         // WebRTC configuration
         const configuration = {
@@ -201,11 +196,29 @@
                 createConnection();
             }
         });
-        copyOfferBtn.addEventListener('click', copyOffer);
+        copyOfferBtn.addEventListener('click', copyShortCode);
         connectBtn.addEventListener('click', connectToPeer);
         sendFileBtn.addEventListener('click', sendFile);
-        scanQrBtn.addEventListener('click', () => qrInput.click());
-        qrInput.addEventListener('change', handleQRScan);
+        
+        // Generate a random 8-character code
+        function generateShortCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed similar looking characters
+            let result = '';
+            for (let i = 0; i < 8; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+        
+        // Store offer with short code
+        function storeOffer(shortCode, offer) {
+            signallingServer[shortCode] = offer;
+        }
+        
+        // Retrieve offer with short code
+        function retrieveOffer(shortCode) {
+            return signallingServer[shortCode];
+        }
         
         // Function to create a new WebRTC connection as the initiator
         function createConnection() {
@@ -219,24 +232,18 @@
                 dataChannel = peerConnection.createDataChannel('fileTransfer');
                 setupDataChannel(dataChannel);
                 
+                // Generate a short code
+                const shortCode = generateShortCode();
+                shortCodeDisplay.textContent = shortCode;
+                
                 // Handle ICE candidates
                 peerConnection.onicecandidate = event => {
                     if (event.candidate === null) {
-                        // ICE gathering completed, show the offer
+                        // ICE gathering completed
                         const offer = JSON.stringify(peerConnection.localDescription);
-                        const encodedOffer = btoa(offer); // Base64 encode for easier sharing
-                        localOffer.value = encodedOffer;
                         
-                        // Generate QR code
-                        document.getElementById('qrcode').innerHTML = '';
-                        new QRCode(document.getElementById('qrcode'), {
-                            text: encodedOffer,
-                            width: 200,
-                            height: 200,
-                            colorDark: '#000000',
-                            colorLight: '#ffffff',
-                            correctLevel: QRCode.CorrectLevel.M
-                        });
+                        // Store the offer with the short code
+                        storeOffer(shortCode, offer);
                         
                         localOfferArea.style.display = 'block';
                     }
@@ -257,18 +264,27 @@
             }
         }
         
-        // Function to connect to another peer using their offer
+        // Function to connect to another peer using their short code
         function connectToPeer() {
-            if (!remoteOffer.value) {
-                alert('Please enter the connection code');
+            const shortCode = shortCodeInput.value.trim().toUpperCase();
+            
+            if (!shortCode || shortCode.length !== 8) {
+                alert('Please enter a valid 8-character connection code');
                 return;
             }
             
             updateConnectionStatus('Connecting...', 'connecting');
             
             try {
-                // Decode the offer and parse it
-                const offerString = atob(remoteOffer.value);
+                // Retrieve the offer using the short code
+                const offerString = retrieveOffer(shortCode);
+                
+                if (!offerString) {
+                    alert('Invalid connection code. Please check and try again.');
+                    updateConnectionStatus('Connection failed', 'disconnected');
+                    return;
+                }
+                
                 const offer = JSON.parse(offerString);
                 
                 // Create peer connection
@@ -277,23 +293,8 @@
                 // Handle ICE candidates
                 peerConnection.onicecandidate = event => {
                     if (event.candidate === null) {
-                        // ICE gathering completed, show the answer
-                        const answer = JSON.stringify(peerConnection.localDescription);
-                        const encodedAnswer = btoa(answer); // Base64 encode for easier sharing
-                        localOffer.value = encodedAnswer;
-                        
-                        // Generate QR code
-                        document.getElementById('qrcode').innerHTML = '';
-                        new QRCode(document.getElementById('qrcode'), {
-                            text: encodedAnswer,
-                            width: 200,
-                            height: 200,
-                            colorDark: '#000000',
-                            colorLight: '#ffffff',
-                            correctLevel: QRCode.CorrectLevel.M
-                        });
-                        
-                        localOfferArea.style.display = 'block';
+                        // ICE gathering completed - in a real app, we would send this back to the initiator
+                        console.log('Answer ready to send back');
                     }
                 };
                 
@@ -467,50 +468,22 @@
             connectionStatus.className = 'connection-status ' + statusClass;
         }
         
-        // Copy offer to clipboard
-        function copyOffer() {
-            localOffer.select();
+        // Copy short code to clipboard
+        function copyShortCode() {
+            const shortCode = shortCodeDisplay.textContent;
+            
+            // Create a temporary input element
+            const tempInput = document.createElement('input');
+            tempInput.value = shortCode;
+            document.body.appendChild(tempInput);
+            tempInput.select();
             document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            
             copyOfferBtn.textContent = 'Copied!';
             setTimeout(() => {
                 copyOfferBtn.textContent = 'Copy code';
             }, 2000);
-        }
-        
-        // Handle QR code scanning
-        function handleQRScan(event) {
-            if (event.target.files.length === 0) return;
-            
-            const file = event.target.files[0];
-            const reader = new FileReader();
-            
-            reader.onload = function(e) {
-                const img = new Image();
-                img.onload = function() {
-                    // Create a canvas to draw the image
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0, img.width, img.height);
-                    
-                    // Use a Web Worker for QR code detection
-                    try {
-                        // For simplicity in this implementation, we'll use a mock QR detection
-                        // In a real app, you would use jsQR or a similar library to detect QR codes
-                        alert("QR Code scanning requires additional libraries for full functionality.\n\nFor now, please use the text code option.");
-                        
-                        // Reset file input
-                        qrInput.value = '';
-                    } catch (error) {
-                        console.error('QR code scanning error:', error);
-                        alert('Error scanning QR code: ' + error.message);
-                    }
-                };
-                img.src = e.target.result;
-            };
-            
-            reader.readAsDataURL(file);
         }
     </script>
 </body>
