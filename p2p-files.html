@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="tool-description" content="Send files P2P over local network">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct P2P File Transfer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .panel {
+            flex: 1;
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .connection-status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        button, input[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover, input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            margin: 10px 0;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #fileList {
+            margin-top: 20px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        .file-item {
+            background-color: #f9f9f9;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .instructions {
+            background-color: #e7f3fe;
+            border-left: 6px solid #2196F3;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Direct P2P File Transfer</h1>
+    
+    <div class="instructions">
+        <p><strong>How it works:</strong> This app uses WebRTC to establish a direct connection between two browsers on the same network. No server is needed for file transfer!</p>
+        <p><strong>Steps:</strong></p>
+        <ol>
+            <li>On one device, click "Create connection" and share the generated code with your friend</li>
+            <li>On the other device, paste the code and click "Connect"</li>
+            <li>Once connected, you can send files directly to each other</li>
+        </ol>
+    </div>
+
+    <div id="connectionStatus" class="connection-status disconnected">Status: Not connected</div>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Connection setup</h2>
+            <div id="createConnection">
+                <button id="createBtn">Create connection</button>
+                <div id="localOfferArea" style="display:none">
+                    <p>Share this code with the other person:</p>
+                    <textarea id="localOffer" readonly></textarea>
+                    <button id="copyOfferBtn">Copy code</button>
+                </div>
+            </div>
+            
+            <div id="joinConnection">
+                <h3>Connect to someone</h3>
+                <p>Paste their connection code here:</p>
+                <textarea id="remoteOffer" placeholder="Paste the other person's code here"></textarea>
+                <button id="connectBtn">Connect</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>File transfer</h2>
+            <div id="fileTransfer" style="display:none">
+                <input type="file" id="fileInput">
+                <button id="sendFileBtn">Send file</button>
+                <div id="sendProgress"></div>
+            </div>
+            
+            <div id="receivedFiles">
+                <h3>Received files</h3>
+                <div id="fileList">No files received yet</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let peerConnection;
+        let dataChannel;
+        let fileReader;
+        let receivedFileChunks = [];
+        let receivedFileName = '';
+        let receivedFileType = '';
+        let receivedFileSize = 0;
+        let currentFile = null;
+        
+        // WebRTC configuration
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }
+            ]
+        };
+        
+        // DOM elements
+        const createBtn = document.getElementById('createBtn');
+        const copyOfferBtn = document.getElementById('copyOfferBtn');
+        const connectBtn = document.getElementById('connectBtn');
+        const sendFileBtn = document.getElementById('sendFileBtn');
+        const fileInput = document.getElementById('fileInput');
+        const localOfferArea = document.getElementById('localOfferArea');
+        const localOffer = document.getElementById('localOffer');
+        const remoteOffer = document.getElementById('remoteOffer');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const fileTransfer = document.getElementById('fileTransfer');
+        const fileList = document.getElementById('fileList');
+        const sendProgress = document.getElementById('sendProgress');
+        
+        // Event listeners
+        createBtn.addEventListener('click', createConnection);
+        copyOfferBtn.addEventListener('click', copyOffer);
+        connectBtn.addEventListener('click', connectToPeer);
+        sendFileBtn.addEventListener('click', sendFile);
+        
+        // Function to create a new WebRTC connection as the initiator
+        function createConnection() {
+            updateConnectionStatus('Creating connection...', 'connecting');
+            
+            // Create peer connection
+            peerConnection = new RTCPeerConnection(configuration);
+            
+            // Create data channel
+            dataChannel = peerConnection.createDataChannel('fileTransfer');
+            setupDataChannel(dataChannel);
+            
+            // Handle ICE candidates
+            peerConnection.onicecandidate = event => {
+                if (event.candidate === null) {
+                    // ICE gathering completed, show the offer
+                    const offer = JSON.stringify(peerConnection.localDescription);
+                    localOffer.value = btoa(offer); // Base64 encode for easier sharing
+                    localOfferArea.style.display = 'block';
+                }
+            };
+            
+            // Create and set local description
+            peerConnection.createOffer()
+                .then(offer => peerConnection.setLocalDescription(offer))
+                .catch(error => console.error('Error creating offer:', error));
+        }
+        
+        // Function to connect to another peer using their offer
+        function connectToPeer() {
+            if (!remoteOffer.value) {
+                alert('Please enter the connection code');
+                return;
+            }
+            
+            updateConnectionStatus('Connecting...', 'connecting');
+            
+            try {
+                // Decode the offer and parse it
+                const offerString = atob(remoteOffer.value);
+                const offer = JSON.parse(offerString);
+                
+                // Create peer connection
+                peerConnection = new RTCPeerConnection(configuration);
+                
+                // Handle ICE candidates
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate === null) {
+                        // ICE gathering completed, show the answer
+                        const answer = JSON.stringify(peerConnection.localDescription);
+                        localOffer.value = btoa(answer); // Base64 encode for easier sharing
+                        localOfferArea.style.display = 'block';
+                    }
+                };
+                
+                // Handle data channel
+                peerConnection.ondatachannel = event => {
+                    dataChannel = event.channel;
+                    setupDataChannel(dataChannel);
+                };
+                
+                // Set remote description and create answer
+                peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+                    .then(() => peerConnection.createAnswer())
+                    .then(answer => peerConnection.setLocalDescription(answer))
+                    .catch(error => {
+                        console.error('Error connecting to peer:', error);
+                        updateConnectionStatus('Connection failed', 'disconnected');
+                    });
+            } catch (error) {
+                console.error('Invalid connection code:', error);
+                alert('Invalid connection code. Please check and try again.');
+                updateConnectionStatus('Connection failed', 'disconnected');
+            }
+        }
+        
+        // Set up the data channel
+        function setupDataChannel(channel) {
+            channel.binaryType = 'arraybuffer';
+            
+            channel.onopen = () => {
+                updateConnectionStatus('Connected!', 'connected');
+                fileTransfer.style.display = 'block';
+            };
+            
+            channel.onclose = () => {
+                updateConnectionStatus('Disconnected', 'disconnected');
+                fileTransfer.style.display = 'none';
+            };
+            
+            channel.onerror = error => {
+                console.error('Data channel error:', error);
+                updateConnectionStatus('Error in connection', 'disconnected');
+            };
+            
+            channel.onmessage = handleMessage;
+        }
+        
+        // Handle incoming messages
+        function handleMessage(event) {
+            const data = event.data;
+            
+            if (typeof data === 'string') {
+                // This is metadata for the file
+                const metadata = JSON.parse(data);
+                
+                if (metadata.type === 'file-start') {
+                    // Reset for new file
+                    receivedFileChunks = [];
+                    receivedFileName = metadata.name;
+                    receivedFileType = metadata.fileType;
+                    receivedFileSize = metadata.size;
+                    
+                    console.log(`Receiving file: ${receivedFileName} (${receivedF
