@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="tool-description" content="Extract text from PDF and convert to Markdown">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to Markdown Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+        }
+        .drop-zone:hover {
+            background-color: #f8f8f8;
+        }
+        .drop-zone.dragover {
+            border-color: #4CAF50;
+            background-color: #f0fff0;
+        }
+        #output {
+            white-space: pre-wrap;
+            background-color: #f8f8f8;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .copy-button {
+            background-color: #2196F3;
+        }
+        .copy-button:hover {
+            background-color: #1976D2;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .options {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .options label {
+            display: block;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        .options input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF to Markdown Converter</h1>
+        <div class="drop-zone" id="dropZone">
+            <p>Drag & drop a PDF file here or click to select</p>
+            <input type="file" id="fileInput" accept=".pdf" style="display: none">
+        </div>
+        
+        <div class="options">
+            <h3>Conversion Options</h3>
+            <label>
+                <input type="checkbox" id="includePageNumbers">
+                Include page separators
+            </label>
+            <label>
+                <input type="checkbox" id="cleanWhitespace" checked>
+                Clean up extra whitespace
+            </label>
+            <label>
+                <input type="checkbox" id="preserveLineBreaks">
+                Preserve original line breaks
+            </label>
+        </div>
+        
+        <div class="status" id="status"></div>
+        
+        <div class="button-group" style="display: none;" id="buttonGroup">
+            <button id="downloadBtn" class="button">Download Markdown</button>
+            <button id="copyBtn" class="button copy-button">Copy to Clipboard</button>
+        </div>
+        
+        <div id="output"></div>
+    </div>
+
+    <script>
+        // Initialize PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const output = document.getElementById('output');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const buttonGroup = document.getElementById('buttonGroup');
+        const status = document.getElementById('status');
+        
+        const includePageNumbers = document.getElementById('includePageNumbers');
+        const cleanWhitespace = document.getElementById('cleanWhitespace');
+        const preserveLineBreaks = document.getElementById('preserveLineBreaks');
+        
+        let currentMarkdown = '';
+        let currentFilename = '';
+
+        // Handle drag and drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type === 'application/pdf') {
+                processFile(file);
+            } else {
+                showStatus('Please drop a PDF file', 'error');
+            }
+        });
+
+        // Handle click to upload
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                processFile(file);
+            }
+        });
+
+        async function processFile(file) {
+            try {
+                currentFilename = file.name.replace('.pdf', '');
+                showStatus('Processing PDF...', 'info');
+                
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                
+                let markdown = '';
+                
+                // Add document title
+                markdown += `# ${currentFilename}\n\n`;
+                
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    let pageText = content.items.map(item => item.str).join(' ');
+                    
+                    // Clean up the text based on options
+                    pageText = processText(pageText);
+                    
+                    if (pageText.trim()) {
+                        // Add page separator if enabled
+                        if (includePageNumbers.checked && i > 1) {
+                            markdown += `\n---\n\n## Page ${i}\n\n`;
+                        } else if (i > 1) {
+                            markdown += '\n\n';
+                        }
+                        
+                        markdown += pageText;
+                    }
+                }
+
+                currentMarkdown = markdown;
+                output.textContent = markdown;
+                buttonGroup.style.display = 'flex';
+                
+                showStatus(`Successfully converted ${pdf.numPages} pages to Markdown`, 'success');
+                
+            } catch (error) {
+                console.error('Error processing PDF:', error);
+                showStatus('Error processing PDF: ' + error.message, 'error');
+                buttonGroup.style.display = 'none';
+            }
+        }
+
+        function processText(text) {
+            if (cleanWhitespace.checked) {
+                // Remove extra whitespace and normalize spacing
+                text = text.replace(/\s+/g, ' ').trim();
+            }
+            
+            if (!preserveLineBreaks.checked) {
+                // Try to detect paragraph breaks and convert to proper markdown
+                text = text.replace(/\.\s+([A-Z])/g, '.\n\n$1');
+            }
+            
+            // Basic markdown formatting enhancements
+            // Convert common patterns to markdown
+            text = text.replace(/([A-Z][A-Z\s]{10,})/g, (match) => {
+                // Convert all-caps sections that might be headings
+                if (match.length < 50) {
+                    return `\n\n## ${match.trim()}\n\n`;
+                }
+                return match;
+            });
+            
+            // Handle bullet points
+            text = text.replace(/•\s*/g, '- ');
+            text = text.replace(/\*\s*/g, '- ');
+            
+            return text;
+        }
+
+        // Download functionality
+        downloadBtn.addEventListener('click', () => {
+            const blob = new Blob([currentMarkdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentFilename}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showStatus('Markdown file downloaded!', 'success');
+        });
+
+        // Copy functionality
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(currentMarkdown);
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = 'Copied!';
+                copyBtn.style.backgroundColor = '#4CAF50';
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                    copyBtn.style.backgroundColor = '#2196F3';
+                }, 2000);
+                showStatus('Markdown copied to clipboard!', 'success');
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                showStatus('Failed to copy to clipboard', 'error');
+            }
+        });
+
+        // Update output when options change
+        [includePageNumbers, cleanWhitespace, preserveLineBreaks].forEach(option => {
+            option.addEventListener('change', () => {
+                if (currentMarkdown && fileInput.files[0]) {
+                    processFile(fileInput.files[0]);
+                }
+            });
+        });
+
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 3000);
+            }
+        }
+    </script>
+</body>
+</html>
