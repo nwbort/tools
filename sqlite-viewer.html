@@ -83,6 +83,19 @@
         .run-query:hover {
             background: #1976D2;
         }
+        .download-csv {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+            display: none;
+        }
+        .download-csv:hover {
+            background: #45a049;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -113,6 +126,11 @@
             border-radius: 4px;
             margin: 10px 0;
         }
+        .result-info {
+            margin: 10px 0;
+            color: #666;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
@@ -128,13 +146,16 @@
         <div class="query-section">
             <textarea class="query-input" id="queryInput" placeholder="Enter your SQL query here..."></textarea>
             <button class="run-query" id="runQuery">Run query</button>
+            <button class="download-csv" id="downloadCsv">Download as CSV</button>
         </div>
+        <div class="result-info" id="resultInfo"></div>
         <div id="results"></div>
     </div>
 
     <script>
         let SQL;
         let currentDb = null;
+        let currentResult = null;
 
         initSqlJs({
             locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
@@ -147,7 +168,9 @@
         const tableListItems = document.getElementById('tableListItems');
         const queryInput = document.getElementById('queryInput');
         const runQuery = document.getElementById('runQuery');
+        const downloadCsv = document.getElementById('downloadCsv');
         const results = document.getElementById('results');
+        const resultInfo = document.getElementById('resultInfo');
 
         // Handle drag and drop events
         dropZone.addEventListener('dragover', (e) => {
@@ -209,9 +232,14 @@
 
         function showTable(tableName) {
             try {
-                const result = currentDb.exec(`SELECT * FROM "${tableName}" LIMIT 10`)[0];
+                const result = currentDb.exec(`SELECT * FROM "${tableName}" LIMIT 100`)[0];
                 displayResults(result);
-                queryInput.value = `SELECT * FROM "${tableName}" LIMIT 10`;
+                queryInput.value = `SELECT * FROM "${tableName}" LIMIT 100`;
+                if (result) {
+                    currentResult = result;
+                    downloadCsv.style.display = 'inline-block';
+                    resultInfo.textContent = `Showing ${result.values.length} rows from "${tableName}"`;
+                }
             } catch (err) {
                 results.innerHTML = `<div class="error">Error reading table: ${err.message}</div>`;
             }
@@ -265,6 +293,8 @@
         function displayResults(result) {
             if (!result) {
                 results.innerHTML = '<p>Query returned no results.</p>';
+                downloadCsv.style.display = 'none';
+                resultInfo.textContent = '';
                 return;
             }
             results.innerHTML = createTableHtml(result);
@@ -285,10 +315,75 @@
             try {
                 const result = currentDb.exec(query)[0];
                 displayResults(result);
+                if (result) {
+                    currentResult = result;
+                    downloadCsv.style.display = 'inline-block';
+                    resultInfo.textContent = `Query returned ${result.values.length} rows`;
+                } else {
+                    currentResult = null;
+                    downloadCsv.style.display = 'none';
+                    resultInfo.textContent = 'Query executed successfully (no results to display)';
+                }
             } catch (err) {
                 results.innerHTML = `<div class="error">Error executing query: ${err.message}</div>`;
+                downloadCsv.style.display = 'none';
+                resultInfo.textContent = '';
             }
         });
+
+        downloadCsv.addEventListener('click', () => {
+            if (!currentResult) {
+                alert('No results to download');
+                return;
+            }
+
+            const csv = convertToCSV(currentResult);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.href = url;
+            link.download = 'query_results.csv';
+            link.style.display = 'none';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            URL.revokeObjectURL(url);
+        });
+
+        function convertToCSV(result) {
+            let csv = '';
+            
+            // Add headers
+            csv += result.columns.map(col => escapeCSV(col)).join(',') + '\n';
+            
+            // Add data rows
+            result.values.forEach(row => {
+                csv += row.map(cell => escapeCSV(cell)).join(',') + '\n';
+            });
+            
+            return csv;
+        }
+
+        function escapeCSV(field) {
+            if (field === null || field === undefined) {
+                return '';
+            }
+            
+            field = field.toString();
+            
+            // Check if the field contains comma, newline, or double quote
+            if (field.includes(',') || field.includes('\n') || field.includes('"')) {
+                // Escape double quotes by doubling them
+                field = field.replace(/"/g, '""');
+                // Wrap in double quotes
+                return `"${field}"`;
+            }
+            
+            return field;
+        }
     </script>
 </body>
 </html>
