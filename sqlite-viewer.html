@@ -7,382 +7,845 @@
     <title>SQLite viewer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
     <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --panel: #ffffff;
+            --panel-alt: #f1f5f9;
+            --text: #1e293b;
+            --muted: #64748b;
+            --border: #e2e8f0;
+            --error-bg: #fef2f2;
+            --error-text: #b91c1c;
+            --error-border: #fecaca;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --primary: #3b82f6;
+                --primary-hover: #60a5fa;
+                --bg: #0f172a;
+                --panel: #1e293b;
+                --panel-alt: #172033;
+                --text: #e2e8f0;
+                --muted: #94a3b8;
+                --border: #334155;
+                --error-bg: #3f1d1d;
+                --error-text: #fca5a5;
+                --error-border: #7f1d1d;
+            }
+        }
+        * { box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-            background: #f5f5f5;
+            background: var(--bg);
+            color: var(--text);
+        }
+        h1 {
+            font-size: 1.5rem;
+            margin: 0 0 4px;
+        }
+        .subtitle {
+            color: var(--muted);
+            font-size: 0.875rem;
+            margin: 0 0 20px;
         }
         .drop-zone {
-            border: 2px dashed #ccc;
+            border: 2px dashed var(--border);
             border-radius: 8px;
-            padding: 20px;
+            padding: 24px;
             text-align: center;
-            background: white;
+            background: var(--panel);
             margin-bottom: 20px;
-            transition: border-color 0.3s ease;
+            transition: border-color 0.2s ease, background 0.2s ease;
+            cursor: pointer;
+        }
+        .drop-zone:hover, .drop-zone:focus-visible {
+            border-color: var(--primary);
+            outline: none;
         }
         .drop-zone.dragover {
-            border-color: #2196F3;
-            background: #e3f2fd;
+            border-color: var(--primary);
+            background: var(--panel-alt);
         }
-        .content {
-            display: none;
-            background: white;
-            padding: 20px;
+        .drop-zone h2 { margin: 0 0 4px; font-size: 1.1rem; }
+        .drop-zone p { margin: 0; color: var(--muted); font-size: 0.875rem; }
+        .drop-zone.compact { padding: 12px; }
+        .drop-zone.compact h2 { font-size: 0.95rem; }
+
+        .content { display: none; }
+        .panel {
+            background: var(--panel);
+            padding: 16px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
+            margin-bottom: 16px;
         }
-        .table-list {
-            margin-bottom: 20px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 4px;
-        }
-        .table-list h3 {
-            margin-top: 0;
+        .panel h3 {
+            margin: 0 0 10px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--muted);
         }
         .table-list ul {
-            list-style-type: none;
+            list-style: none;
             padding: 0;
             margin: 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
         }
-        .table-list li {
-            display: inline-block;
-            margin: 5px;
-            padding: 5px 10px;
-            background: #e9ecef;
-            border-radius: 4px;
+        .table-chip {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--panel-alt);
+            border: 1px solid var(--border);
+            border-radius: 6px;
             cursor: pointer;
+            font-size: 0.875rem;
+            transition: border-color 0.15s ease;
         }
-        .table-list li:hover {
-            background: #dee2e6;
+        .table-chip:hover, .table-chip:focus-visible {
+            border-color: var(--primary);
+            outline: none;
         }
-        .query-section {
-            margin: 20px 0;
+        .table-chip .count { color: var(--muted); font-size: 0.75rem; }
+        .table-chip .kind {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 0 3px;
         }
+
+        .schema-details { margin-top: 12px; }
+        .schema-details summary {
+            cursor: pointer;
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .schema-cols {
+            margin: 8px 0 0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.75rem;
+            color: var(--muted);
+            white-space: pre-wrap;
+        }
+
         .query-input {
             width: 100%;
-            height: 100px;
+            min-height: 110px;
             padding: 10px;
-            margin-bottom: 10px;
-            font-family: monospace;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.875rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel-alt);
+            color: var(--text);
             resize: vertical;
         }
-        .run-query {
-            background: #2196F3;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
+        .query-input:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-top: 10px;
+        }
+        button {
+            font: inherit;
+            font-size: 0.875rem;
+            border: 1px solid transparent;
+            padding: 8px 14px;
+            border-radius: 6px;
             cursor: pointer;
+            background: var(--panel-alt);
+            color: var(--text);
+            border-color: var(--border);
         }
-        .run-query:hover {
-            background: #1976D2;
+        button:hover:not(:disabled) { border-color: var(--primary); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button.primary { background: var(--primary); color: #fff; border-color: transparent; }
+        button.primary:hover:not(:disabled) { background: var(--primary-hover); }
+        button.small { padding: 4px 8px; font-size: 0.75rem; }
+        .hint { color: var(--muted); font-size: 0.75rem; margin-left: auto; }
+        select, input[type="search"] {
+            font: inherit;
+            font-size: 0.875rem;
+            padding: 7px 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel-alt);
+            color: var(--text);
+            max-width: 260px;
         }
-        .download-csv {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-left: 10px;
-            display: none;
+
+        .result-set { margin-top: 20px; }
+        .result-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
         }
-        .download-csv:hover {
-            background: #45a049;
+        .result-info { color: var(--muted); font-size: 0.8rem; }
+        .result-actions { display: flex; gap: 6px; margin-left: auto; }
+        .table-scroll {
+            overflow: auto;
+            max-height: 65vh;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel);
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
+        table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
         th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
+            border-bottom: 1px solid var(--border);
+            padding: 6px 10px;
             text-align: left;
+            white-space: nowrap;
+            max-width: 420px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        th {
-            background-color: #f5f5f5;
+        thead th {
+            position: sticky;
+            top: 0;
+            background: var(--panel-alt);
+            cursor: pointer;
+            user-select: none;
+            z-index: 1;
         }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        .table-name {
-            font-size: 1.2em;
-            font-weight: bold;
-            margin-top: 30px;
-            margin-bottom: 10px;
-            color: #333;
-        }
+        thead th:hover { color: var(--primary); }
+        thead th .sort-arrow { color: var(--primary); font-size: 0.7rem; }
+        tbody tr:nth-child(even) { background: color-mix(in srgb, var(--panel-alt) 55%, transparent); }
+        tbody tr:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+        td.null { color: var(--muted); font-style: italic; }
+        td.blob { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+        td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
         .error {
-            color: #dc3545;
-            padding: 10px;
-            background: #f8d7da;
-            border-radius: 4px;
-            margin: 10px 0;
+            color: var(--error-text);
+            background: var(--error-bg);
+            border: 1px solid var(--error-border);
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin: 12px 0;
+            font-size: 0.875rem;
+            white-space: pre-wrap;
         }
-        .result-info {
-            margin: 10px 0;
-            color: #666;
-            font-size: 0.9em;
+        .status { color: var(--muted); font-size: 0.875rem; margin: 12px 0; }
+        .visually-hidden {
+            position: absolute; width: 1px; height: 1px;
+            overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
         }
     </style>
 </head>
 <body>
-    <div class="drop-zone" id="dropZone">
-        <h2>Drop SQLite file here</h2>
-        <p>or click to select file</p>
+    <h1>SQLite viewer</h1>
+    <p class="subtitle">Open a SQLite database and run queries. Everything stays in your browser &mdash; no upload.</p>
+
+    <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Drop a SQLite file here or press Enter to browse">
+        <h2 id="dropTitle">Drop SQLite file here</h2>
+        <p id="dropSubtitle">or click to select a file (.db, .sqlite, .sqlite3)</p>
     </div>
+    <input type="file" id="fileInput" class="visually-hidden" accept=".db,.sqlite,.sqlite3,.db3,application/vnd.sqlite3,application/x-sqlite3">
+
     <div class="content" id="content">
-        <div class="table-list" id="tableList">
-            <h3>Available tables</h3>
+        <div class="panel table-list">
+            <h3>Tables and views</h3>
             <ul id="tableListItems"></ul>
+            <details class="schema-details" id="schemaDetails">
+                <summary>Schema</summary>
+                <div id="schemaBody"></div>
+            </details>
         </div>
-        <div class="query-section">
-            <textarea class="query-input" id="queryInput" placeholder="Enter your SQL query here..."></textarea>
-            <button class="run-query" id="runQuery">Run query</button>
-            <button class="download-csv" id="downloadCsv">Download as CSV</button>
+
+        <div class="panel">
+            <h3>Query</h3>
+            <textarea class="query-input" id="queryInput" spellcheck="false" placeholder="SELECT * FROM my_table LIMIT 100"></textarea>
+            <div class="toolbar">
+                <button class="primary" id="runQuery">Run query</button>
+                <select id="historySelect" aria-label="Recent queries">
+                    <option value="">Recent queries…</option>
+                </select>
+                <input type="search" id="filterInput" placeholder="Filter rows…" aria-label="Filter result rows">
+                <button id="downloadDb">Download database</button>
+                <span class="hint" id="runHint"></span>
+            </div>
         </div>
-        <div class="result-info" id="resultInfo"></div>
+
+        <div id="status" class="status"></div>
         <div id="results"></div>
     </div>
 
     <script>
-        let SQL;
-        let currentDb = null;
-        let currentResult = null;
-
-        initSqlJs({
-            locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-        }).then(function(sql) {
-            SQL = sql;
-        });
+        const MAX_RENDER_ROWS = 1000;
+        const HISTORY_KEY = 'sqlite-viewer:history';
+        const HISTORY_LIMIT = 20;
+        const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
         const dropZone = document.getElementById('dropZone');
+        const dropTitle = document.getElementById('dropTitle');
+        const dropSubtitle = document.getElementById('dropSubtitle');
+        const fileInput = document.getElementById('fileInput');
         const content = document.getElementById('content');
         const tableListItems = document.getElementById('tableListItems');
+        const schemaDetails = document.getElementById('schemaDetails');
+        const schemaBody = document.getElementById('schemaBody');
         const queryInput = document.getElementById('queryInput');
-        const runQuery = document.getElementById('runQuery');
-        const downloadCsv = document.getElementById('downloadCsv');
+        const runQueryBtn = document.getElementById('runQuery');
+        const historySelect = document.getElementById('historySelect');
+        const filterInput = document.getElementById('filterInput');
+        const downloadDbBtn = document.getElementById('downloadDb');
+        const runHint = document.getElementById('runHint');
+        const statusEl = document.getElementById('status');
         const results = document.getElementById('results');
-        const resultInfo = document.getElementById('resultInfo');
 
-        // Handle drag and drop events
+        let SQL = null;
+        let currentDb = null;
+        let dbName = 'database';
+        // One entry per result set currently on screen, holding the data plus its view state.
+        let resultSets = [];
+        let history = loadHistory();
+
+        runHint.textContent = `${isMac ? '⌘' : 'Ctrl'}+Enter to run`;
+        renderHistory();
+
+        const sqlReady = typeof initSqlJs === 'function'
+            ? initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` })
+                .then(sql => { SQL = sql; return sql; })
+            : Promise.reject(new Error('sql.js could not be loaded from the CDN — check your connection and reload the page.'));
+        // The rejection is surfaced when a file is opened; keep it from bubbling up before then.
+        sqlReady.catch(() => {});
+
+        /* ---------- file loading ---------- */
+
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropZone.classList.add('dragover');
         });
-
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('dragover');
-        });
-
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropZone.classList.remove('dragover');
-            const file = e.dataTransfer.files[0];
-            handleFile(file);
+            const file = e.dataTransfer.files && e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInput.click();
+            }
+        });
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) handleFile(file);
+            fileInput.value = '';
         });
 
-        // Handle click to select file
-        dropZone.addEventListener('click', () => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.db,.sqlite,.sqlite3';
-            input.onchange = (e) => {
-                const file = e.target.files[0];
-                handleFile(file);
-            };
-            input.click();
-        });
-
-        function handleFile(file) {
-            const reader = new FileReader();
-            reader.onload = function() {
-                const arrayBuffer = this.result;
-                try {
-                    currentDb = new SQL.Database(new Uint8Array(arrayBuffer));
-                    loadTableList();
-                    content.style.display = 'block';
-                    showAllTables();
-                } catch (err) {
-                    alert('Error reading SQLite file: ' + err.message);
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        }
-
-        function loadTableList() {
-            const tables = currentDb.exec("SELECT name FROM sqlite_master WHERE type='table'")[0];
-            
-            if (!tables) {
-                tableListItems.innerHTML = '<li>No tables found</li>';
+        async function handleFile(file) {
+            setStatus(`Opening ${file.name}…`);
+            let buffer;
+            try {
+                buffer = await file.arrayBuffer();
+            } catch (err) {
+                showError(`Could not read the file: ${err.message}`);
                 return;
             }
 
-            tableListItems.innerHTML = tables.values.map(([tableName]) => 
-                `<li onclick="showTable('${tableName}')">${tableName}</li>`
-            ).join('');
+            const bytes = new Uint8Array(buffer);
+            if (!looksLikeSqlite(bytes)) {
+                showError(`"${file.name}" does not look like a SQLite database (missing the "SQLite format 3" header).`);
+                return;
+            }
+
+            try {
+                await sqlReady;
+            } catch (err) {
+                showError(`Could not load the SQLite engine: ${err.message}`);
+                return;
+            }
+
+            try {
+                if (currentDb) currentDb.close();
+                currentDb = new SQL.Database(bytes);
+            } catch (err) {
+                currentDb = null;
+                showError(`Error reading SQLite file: ${err.message}`);
+                return;
+            }
+
+            dbName = file.name.replace(/\.[^.]+$/, '') || 'database';
+            content.style.display = 'block';
+            dropZone.classList.add('compact');
+            dropTitle.textContent = file.name;
+            dropSubtitle.textContent = `${formatBytes(file.size)} — drop another file or click to replace`;
+            clearResults();
+            setStatus('');
+
+            const objects = loadTableList();
+            renderSchema(objects);
+            const firstTable = objects.find(o => o.type === 'table') || objects[0];
+            if (firstTable) {
+                showTable(firstTable.name);
+            } else {
+                setStatus('This database has no tables or views.');
+            }
+        }
+
+        // Every SQLite database starts with the 16-byte string "SQLite format 3\0".
+        function looksLikeSqlite(bytes) {
+            const magic = 'SQLite format 3\0';
+            if (bytes.length < magic.length) return false;
+            for (let i = 0; i < magic.length; i++) {
+                if (bytes[i] !== magic.charCodeAt(i)) return false;
+            }
+            return true;
+        }
+
+        /* ---------- schema ---------- */
+
+        function loadTableList() {
+            const rows = queryAll(`
+                SELECT name, type FROM sqlite_master
+                WHERE type IN ('table','view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+                ORDER BY type, name
+            `);
+
+            tableListItems.textContent = '';
+            if (!rows.length) {
+                const li = document.createElement('li');
+                li.textContent = 'No tables found';
+                li.style.color = 'var(--muted)';
+                tableListItems.appendChild(li);
+                return [];
+            }
+
+            const objects = rows.map(([name, type]) => ({ name, type, rowCount: countRows(name) }));
+
+            objects.forEach(obj => {
+                const li = document.createElement('li');
+                li.className = 'table-chip';
+                li.tabIndex = 0;
+                li.setAttribute('role', 'button');
+
+                const label = document.createElement('span');
+                label.textContent = obj.name;
+                li.appendChild(label);
+
+                if (obj.type === 'view') {
+                    const kind = document.createElement('span');
+                    kind.className = 'kind';
+                    kind.textContent = 'view';
+                    li.appendChild(kind);
+                }
+
+                const count = document.createElement('span');
+                count.className = 'count';
+                count.textContent = obj.rowCount === null ? '' : `${obj.rowCount.toLocaleString()} rows`;
+                li.appendChild(count);
+
+                const open = () => showTable(obj.name);
+                li.addEventListener('click', open);
+                li.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+                });
+                tableListItems.appendChild(li);
+            });
+
+            return objects;
+        }
+
+        function countRows(name) {
+            try {
+                const rows = queryAll(`SELECT COUNT(*) FROM ${quoteIdent(name)}`);
+                return rows.length ? rows[0][0] : null;
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function renderSchema(objects) {
+            schemaBody.textContent = '';
+            schemaDetails.style.display = objects.length ? 'block' : 'none';
+
+            objects.forEach(obj => {
+                const block = document.createElement('div');
+                block.className = 'schema-cols';
+                let text = `${obj.name}\n`;
+                try {
+                    const cols = queryAll(`PRAGMA table_info(${quoteIdent(obj.name)})`);
+                    cols.forEach(([, colName, colType, notNull, dflt, pk]) => {
+                        const flags = [
+                            pk ? 'PK' : null,
+                            notNull ? 'NOT NULL' : null,
+                            dflt === null || dflt === undefined ? null : `DEFAULT ${dflt}`
+                        ].filter(Boolean).join(' ');
+                        text += `  ${colName} ${colType || ''}${flags ? '  ' + flags : ''}\n`;
+                    });
+                } catch (err) {
+                    text += `  (could not read schema: ${err.message})\n`;
+                }
+                block.textContent = text;
+                schemaBody.appendChild(block);
+            });
         }
 
         function showTable(tableName) {
-            try {
-                const result = currentDb.exec(`SELECT * FROM "${tableName}" LIMIT 100`)[0];
-                displayResults(result);
-                queryInput.value = `SELECT * FROM "${tableName}" LIMIT 100`;
-                if (result) {
-                    currentResult = result;
-                    downloadCsv.style.display = 'inline-block';
-                    resultInfo.textContent = `Showing ${result.values.length} rows from "${tableName}"`;
-                }
-            } catch (err) {
-                results.innerHTML = `<div class="error">Error reading table: ${err.message}</div>`;
-            }
+            const sql = `SELECT * FROM ${quoteIdent(tableName)} LIMIT 100`;
+            queryInput.value = sql;
+            execute(sql, { record: false });
         }
 
-        function showAllTables() {
-            const tables = currentDb.exec("SELECT name FROM sqlite_master WHERE type='table'")[0];
-            
-            if (!tables) {
-                results.innerHTML = '<p>No tables found in database.</p>';
-                return;
-            }
+        /* ---------- query execution ---------- */
 
-            let html = '';
-            tables.values.forEach(([tableName]) => {
-                html += `<div class="table-name">${tableName}</div>`;
-                
-                try {
-                    const result = currentDb.exec(`SELECT * FROM "${tableName}" LIMIT 10`)[0];
-                    if (result) {
-                        html += createTableHtml(result);
-                    } else {
-                        html += '<p>No data in table</p>';
-                    }
-                } catch (err) {
-                    html += `<div class="error">Error reading table: ${err.message}</div>`;
-                }
-            });
-            
-            results.innerHTML = html;
-        }
+        runQueryBtn.addEventListener('click', () => execute(queryInput.value.trim()));
 
-        function createTableHtml(result) {
-            let html = '<table><thead><tr>';
-            result.columns.forEach(column => {
-                html += `<th>${column}</th>`;
-            });
-            html += '</tr></thead><tbody>';
-            
-            result.values.forEach(row => {
-                html += '<tr>';
-                row.forEach(cell => {
-                    html += `<td>${cell}</td>`;
-                });
-                html += '</tr>';
-            });
-            html += '</tbody></table>';
-            return html;
-        }
-
-        function displayResults(result) {
-            if (!result) {
-                results.innerHTML = '<p>Query returned no results.</p>';
-                downloadCsv.style.display = 'none';
-                resultInfo.textContent = '';
-                return;
-            }
-            results.innerHTML = createTableHtml(result);
-        }
-
-        runQuery.addEventListener('click', () => {
-            if (!currentDb) {
-                alert('Please load a database file first');
-                return;
-            }
-
-            const query = queryInput.value.trim();
-            if (!query) {
-                alert('Please enter a SQL query');
-                return;
-            }
-
-            try {
-                const result = currentDb.exec(query)[0];
-                displayResults(result);
-                if (result) {
-                    currentResult = result;
-                    downloadCsv.style.display = 'inline-block';
-                    resultInfo.textContent = `Query returned ${result.values.length} rows`;
-                } else {
-                    currentResult = null;
-                    downloadCsv.style.display = 'none';
-                    resultInfo.textContent = 'Query executed successfully (no results to display)';
-                }
-            } catch (err) {
-                results.innerHTML = `<div class="error">Error executing query: ${err.message}</div>`;
-                downloadCsv.style.display = 'none';
-                resultInfo.textContent = '';
+        queryInput.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                execute(queryInput.value.trim());
             }
         });
 
-        downloadCsv.addEventListener('click', () => {
-            if (!currentResult) {
-                alert('No results to download');
+        function execute(sql, { record = true } = {}) {
+            if (!currentDb) {
+                showError('Load a database file first.');
+                return;
+            }
+            if (!sql) {
+                showError('Enter a SQL query.');
                 return;
             }
 
-            const csv = convertToCSV(currentResult);
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
+            clearResults();
+            let sets;
+            try {
+                sets = currentDb.exec(sql);
+            } catch (err) {
+                showError(`Error executing query: ${err.message}`);
+                return;
+            }
+
+            if (record) addToHistory(sql);
+
+            resultSets = sets.map((set, index) => ({
+                columns: set.columns,
+                values: set.values,
+                index,
+                sortCol: null,
+                sortDir: 1
+            }));
+
+            if (!resultSets.length) {
+                const changed = currentDb.getRowsModified();
+                setStatus(changed > 0
+                    ? `Statement executed. ${changed.toLocaleString()} row${changed === 1 ? '' : 's'} modified.`
+                    : 'Statement executed. No rows returned.');
+                if (changed > 0) refreshAfterWrite();
+                return;
+            }
+
+            setStatus('');
+            renderAllResultSets();
+        }
+
+        function refreshAfterWrite() {
+            const objects = loadTableList();
+            renderSchema(objects);
+        }
+
+        /* ---------- rendering ---------- */
+
+        filterInput.addEventListener('input', renderAllResultSets);
+
+        function clearResults() {
+            resultSets = [];
+            results.textContent = '';
+        }
+
+        function setStatus(text) {
+            statusEl.textContent = text;
+        }
+
+        function showError(message) {
+            results.textContent = '';
+            resultSets = [];
+            setStatus('');
+            const div = document.createElement('div');
+            div.className = 'error';
+            div.textContent = message;
+            results.appendChild(div);
+        }
+
+        function renderAllResultSets() {
+            results.textContent = '';
+            resultSets.forEach(set => results.appendChild(renderResultSet(set)));
+        }
+
+        function viewOf(set) {
+            const term = filterInput.value.trim().toLowerCase();
+            let rows = set.values;
+
+            if (term) {
+                rows = rows.filter(row => row.some(cell => formatCell(cell).text.toLowerCase().includes(term)));
+            }
+            if (set.sortCol !== null) {
+                rows = rows.slice().sort((a, b) => set.sortDir * compareValues(a[set.sortCol], b[set.sortCol]));
+            }
+            return rows;
+        }
+
+        function renderResultSet(set) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'result-set';
+
+            const rows = viewOf(set);
+            const shown = Math.min(rows.length, MAX_RENDER_ROWS);
+
+            const header = document.createElement('div');
+            header.className = 'result-header';
+
+            const info = document.createElement('span');
+            info.className = 'result-info';
+            let infoText = `${rows.length.toLocaleString()} row${rows.length === 1 ? '' : 's'}`;
+            if (rows.length !== set.values.length) infoText += ` (filtered from ${set.values.length.toLocaleString()})`;
+            if (shown < rows.length) infoText += ` — showing first ${shown.toLocaleString()}`;
+            if (resultSets.length > 1) infoText = `Result ${set.index + 1}: ${infoText}`;
+            info.textContent = infoText;
+            header.appendChild(info);
+
+            const actions = document.createElement('div');
+            actions.className = 'result-actions';
+            actions.appendChild(makeButton('Copy TSV', () => copyTsv(set.columns, rows)));
+            actions.appendChild(makeButton('CSV', () => downloadText(toCsv(set.columns, rows), `${dbName}_results.csv`, 'text/csv;charset=utf-8;')));
+            actions.appendChild(makeButton('JSON', () => downloadText(toJson(set.columns, rows), `${dbName}_results.json`, 'application/json')));
+            header.appendChild(actions);
+            wrapper.appendChild(header);
+
+            const scroll = document.createElement('div');
+            scroll.className = 'table-scroll';
+            const table = document.createElement('table');
+
+            const thead = document.createElement('thead');
+            const headRow = document.createElement('tr');
+            set.columns.forEach((column, i) => {
+                const th = document.createElement('th');
+                th.textContent = column;
+                th.title = `Sort by ${column}`;
+                if (set.sortCol === i) {
+                    const arrow = document.createElement('span');
+                    arrow.className = 'sort-arrow';
+                    arrow.textContent = set.sortDir === 1 ? ' ▲' : ' ▼';
+                    th.appendChild(arrow);
+                }
+                th.addEventListener('click', () => {
+                    if (set.sortCol === i) {
+                        // ascending → descending → unsorted
+                        if (set.sortDir === 1) set.sortDir = -1;
+                        else { set.sortCol = null; set.sortDir = 1; }
+                    } else {
+                        set.sortCol = i;
+                        set.sortDir = 1;
+                    }
+                    renderAllResultSets();
+                });
+                headRow.appendChild(th);
+            });
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            for (let r = 0; r < shown; r++) {
+                const tr = document.createElement('tr');
+                rows[r].forEach(cell => {
+                    const { text, cls } = formatCell(cell);
+                    const td = document.createElement('td');
+                    td.textContent = text;
+                    if (cls) td.className = cls;
+                    if (text.length > 60) td.title = text;
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            scroll.appendChild(table);
+            wrapper.appendChild(scroll);
+
+            if (shown < rows.length) {
+                const note = document.createElement('div');
+                note.className = 'status';
+                note.textContent = `${(rows.length - shown).toLocaleString()} more rows not rendered — add a LIMIT, filter, or export to see them all.`;
+                wrapper.appendChild(note);
+            }
+
+            return wrapper;
+        }
+
+        function makeButton(label, onClick) {
+            const button = document.createElement('button');
+            button.className = 'small';
+            button.textContent = label;
+            button.addEventListener('click', onClick);
+            return button;
+        }
+
+        function formatCell(value) {
+            if (value === null || value === undefined) return { text: 'NULL', cls: 'null' };
+            if (value instanceof Uint8Array) return { text: `[BLOB ${value.length} bytes]`, cls: 'blob' };
+            if (typeof value === 'number' || typeof value === 'bigint') return { text: String(value), cls: 'num' };
+            return { text: String(value), cls: '' };
+        }
+
+        function compareValues(a, b) {
+            const aNull = a === null || a === undefined;
+            const bNull = b === null || b === undefined;
+            if (aNull && bNull) return 0;
+            if (aNull) return 1;
+            if (bNull) return -1;
+            if (typeof a === 'number' && typeof b === 'number') return a - b;
+            return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+        }
+
+        /* ---------- history ---------- */
+
+        function loadHistory() {
+            try {
+                const raw = localStorage.getItem(HISTORY_KEY);
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [];
+            } catch (err) {
+                return [];
+            }
+        }
+
+        function addToHistory(sql) {
+            history = [sql, ...history.filter(item => item !== sql)].slice(0, HISTORY_LIMIT);
+            try {
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+            } catch (err) {
+                /* storage may be unavailable (private mode, quota) — history stays in memory */
+            }
+            renderHistory();
+        }
+
+        function renderHistory() {
+            historySelect.textContent = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = history.length ? 'Recent queries…' : 'No recent queries';
+            historySelect.appendChild(placeholder);
+            history.forEach(sql => {
+                const option = document.createElement('option');
+                option.value = sql;
+                option.textContent = sql.length > 60 ? sql.slice(0, 60) + '…' : sql;
+                historySelect.appendChild(option);
+            });
+        }
+
+        historySelect.addEventListener('change', () => {
+            if (!historySelect.value) return;
+            queryInput.value = historySelect.value;
+            historySelect.value = '';
+            queryInput.focus();
+        });
+
+        /* ---------- export ---------- */
+
+        downloadDbBtn.addEventListener('click', () => {
+            if (!currentDb) return;
+            const data = currentDb.export();
+            downloadBlob(new Blob([data], { type: 'application/x-sqlite3' }), `${dbName}.sqlite`);
+        });
+
+        function toCsv(columns, rows) {
+            const lines = [columns.map(escapeCsv).join(',')];
+            rows.forEach(row => lines.push(row.map(cell => escapeCsv(exportValue(cell))).join(',')));
+            return lines.join('\r\n') + '\r\n';
+        }
+
+        function toJson(columns, rows) {
+            return JSON.stringify(rows.map(row => {
+                const obj = {};
+                columns.forEach((column, i) => { obj[column] = exportValue(row[i]); });
+                return obj;
+            }), null, 2);
+        }
+
+        function toTsv(columns, rows) {
+            const clean = value => String(exportValue(value) ?? '').replace(/[\t\r\n]+/g, ' ');
+            return [columns.join('\t'), ...rows.map(row => row.map(clean).join('\t'))].join('\n');
+        }
+
+        // Values as they should appear in an export: BLOBs are not text, so describe them.
+        function exportValue(value) {
+            if (value instanceof Uint8Array) return `[BLOB ${value.length} bytes]`;
+            return value;
+        }
+
+        function escapeCsv(field) {
+            if (field === null || field === undefined) return '';
+            const text = String(field);
+            if (/[",\r\n]/.test(text) || text !== text.trim()) {
+                return `"${text.replace(/"/g, '""')}"`;
+            }
+            return text;
+        }
+
+        async function copyTsv(columns, rows) {
+            const text = toTsv(columns, rows);
+            try {
+                await navigator.clipboard.writeText(text);
+                setStatus('Copied to clipboard as TSV.');
+            } catch (err) {
+                setStatus('Could not copy to clipboard — use the CSV export instead.');
+            }
+        }
+
+        function downloadText(text, filename, type) {
+            downloadBlob(new Blob([text], { type }), filename);
+        }
+
+        function downloadBlob(blob, filename) {
             const url = URL.createObjectURL(blob);
-            
+            const link = document.createElement('a');
             link.href = url;
-            link.download = 'query_results.csv';
-            link.style.display = 'none';
-            
+            link.download = filename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            
             URL.revokeObjectURL(url);
-        });
-
-        function convertToCSV(result) {
-            let csv = '';
-            
-            // Add headers
-            csv += result.columns.map(col => escapeCSV(col)).join(',') + '\n';
-            
-            // Add data rows
-            result.values.forEach(row => {
-                csv += row.map(cell => escapeCSV(cell)).join(',') + '\n';
-            });
-            
-            return csv;
         }
 
-        function escapeCSV(field) {
-            if (field === null || field === undefined) {
-                return '';
+        /* ---------- helpers ---------- */
+
+        function queryAll(sql) {
+            const sets = currentDb.exec(sql);
+            return sets.length ? sets[0].values : [];
+        }
+
+        function quoteIdent(name) {
+            return `"${String(name).replace(/"/g, '""')}"`;
+        }
+
+        function formatBytes(bytes) {
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let value = bytes;
+            let unit = 0;
+            while (value >= 1024 && unit < units.length - 1) {
+                value /= 1024;
+                unit++;
             }
-            
-            field = field.toString();
-            
-            // Check if the field contains comma, newline, or double quote
-            if (field.includes(',') || field.includes('\n') || field.includes('"')) {
-                // Escape double quotes by doubling them
-                field = field.replace(/"/g, '""');
-                // Wrap in double quotes
-                return `"${field}"`;
-            }
-            
-            return field;
+            return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
         }
     </script>
 </body>
