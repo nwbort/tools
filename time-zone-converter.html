@@ -5,531 +5,646 @@
 <meta name="tool-description" content="Line up a time across multiple time zones on a scrollable timeline">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Time zone converter</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-    tailwind.config = { darkMode: 'class' };
-</script>
 <style>
-    .tick-cell { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    :root {
+        --primary-color: #2563eb;
+        --hover-color: #1d4ed8;
+        --background-color: #f1f5f9;
+        --card-color: #ffffff;
+        --text-color: #1e293b;
+        --description-color: #64748b;
+        --border-color: #e2e8f0;
+        --tick-border: #f1f5f9;
+        --shade-day: #ffffff;
+        --shade-day-weekend: #fffbeb;
+        --shade-transition: #f8fafc;
+        --shade-transition-weekend: #fef3c7;
+        --shade-night: #cbd5e1;
+        --now-color: #10b981;
+        --line-color: #f43f5e;
+    }
+    html.dark {
+        --background-color: #0f172a;
+        --card-color: #1e293b;
+        --text-color: #f1f5f9;
+        --description-color: #94a3b8;
+        --border-color: #334155;
+        --tick-border: #334155;
+        --shade-day: #1e293b;
+        --shade-day-weekend: #1e293b;
+        --shade-transition: #16213a;
+        --shade-transition-weekend: #26240f;
+        --shade-night: #0b1220;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background-color: var(--background-color);
+        color: var(--text-color);
+        padding: 1.5rem 1rem;
+        transition: background-color 0.2s ease;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem; }
+    header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+    h1 { font-size: 1.5rem; color: var(--primary-color); }
+    header p { font-size: 0.875rem; color: var(--description-color); margin-top: 0.25rem; }
+    button { font: inherit; cursor: pointer; }
+    .icon-btn {
+        border: 1px solid var(--border-color); background: var(--card-color); color: var(--text-color);
+        border-radius: 6px; padding: 0.5rem 0.7rem; font-size: 1rem; flex-shrink: 0;
+    }
+    .icon-btn:hover { background-color: var(--background-color); }
+
+    .card { background: var(--card-color); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .controls { padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+
+    .search-box { position: relative; }
+    #searchInput {
+        width: 100%; padding: 0.6rem 0.75rem; font-size: 0.95rem; border: 1px solid var(--border-color);
+        border-radius: 6px; background: var(--card-color); color: var(--text-color);
+    }
+    #dropdown {
+        display: none; position: absolute; z-index: 30; margin-top: 0.25rem; width: 100%;
+        background: var(--card-color); border: 1px solid var(--border-color); border-radius: 6px;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.15); max-height: 16rem; overflow-y: auto;
+    }
+    #dropdown.open { display: block; }
+    .dropdown-item {
+        width: 100%; text-align: left; padding: 0.55rem 0.75rem; border: none; background: none; color: var(--text-color);
+        display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+    }
+    .dropdown-item:hover { background: var(--background-color); }
+    .dropdown-item .region { color: var(--description-color); }
+    .dropdown-item .offset { font-size: 0.75rem; color: var(--description-color); flex-shrink: 0; }
+
+    #quickAdd { display: none; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+    #quickAdd.show { display: flex; }
+    #quickAdd .hint { font-size: 0.75rem; color: var(--description-color); }
+    .chip {
+        font-size: 0.75rem; padding: 0.3rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-color);
+        background: var(--card-color); color: var(--text-color);
+    }
+    .chip:hover { background: var(--background-color); }
+
+    .controls-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding-top: 0.6rem; border-top: 1px solid var(--border-color); }
+    .btn {
+        border: 1px solid var(--border-color); background: var(--card-color); color: var(--text-color);
+        border-radius: 6px; padding: 0.4rem 0.75rem; font-size: 0.875rem;
+    }
+    .btn:hover { background: var(--background-color); }
+    .controls-row label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; }
+    #jumpInput { padding: 0.35rem 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-color); color: var(--text-color); font-size: 0.875rem; }
+    .spacer { margin-left: auto; }
+
+    .timeline-card { overflow: hidden; }
+    #emptyState { display: none; padding: 2.5rem 1rem; text-align: center; color: var(--description-color); }
+    #timelineBody { display: flex; }
+
+    #labelsColumn { flex-shrink: 0; width: 9rem; border-right: 1px solid var(--border-color); }
+    .label-cell { height: 84px; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-color); display: flex; flex-direction: column; justify-content: center; gap: 2px; position: relative; }
+    .label-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 4px; }
+    .label-city { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .label-city .star { color: #f59e0b; margin-left: 2px; }
+    .label-region { font-size: 0.68rem; color: var(--description-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .label-actions { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+    .mini-btn { border: none; background: none; color: var(--description-color); font-size: 0.8rem; line-height: 1; padding: 0 2px; }
+    .mini-btn:hover { color: var(--primary-color); }
+    .mini-btn.remove:hover { color: #ef4444; }
+    .mini-row { display: flex; gap: 1px; }
+    .label-time { font-size: 1.2rem; font-weight: 700; color: var(--primary-color); }
+    .label-date { font-size: 0.68rem; color: var(--description-color); }
+    .label-date .diff { font-weight: 600; margin-left: 3px; }
+    .diff-ahead { color: #10b981; }
+    .diff-behind { color: #f97316; }
+
+    .scroll-outer { position: relative; flex: 1; min-width: 0; }
+    .center-line { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: var(--line-color); z-index: 20; pointer-events: none; transform: translateX(-1px); }
+    #scrollArea { overflow-x: auto; overflow-y: hidden; cursor: grab; }
+    #scrollArea.dragging { cursor: grabbing; }
+    #scrollInner { position: relative; }
+    #nowMarker { position: absolute; top: 0; bottom: 0; z-index: 10; border-left: 1px dashed var(--now-color); display: none; }
+    #nowMarker span { position: absolute; top: 4px; left: 4px; font-size: 0.6rem; padding: 1px 5px; border-radius: 999px; background: var(--now-color); color: #fff; white-space: nowrap; }
+
+    .ruler-row { display: flex; height: 84px; border-bottom: 1px solid var(--border-color); }
+    .tick {
+        flex-shrink: 0; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        border-left: 1px solid var(--tick-border); gap: 1px;
+    }
+    .tick.midnight { border-left: 2px solid var(--description-color); }
+    .tick .date-label { font-size: 0.62rem; color: var(--description-color); line-height: 1.1; }
+    .tick .hour-label { font-size: 0.75rem; color: var(--text-color); }
+    .shade-day { background: var(--shade-day); }
+    .shade-day-weekend { background: var(--shade-day-weekend); }
+    .shade-transition { background: var(--shade-transition); }
+    .shade-transition-weekend { background: var(--shade-transition-weekend); }
+    .shade-night { background: var(--shade-night); }
+
     ::-webkit-scrollbar { height: 10px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.4); border-radius: 999px; }
+
+    @media (max-width: 560px) {
+        #labelsColumn { width: 7rem; }
+        .label-time { font-size: 1rem; }
+    }
 </style>
 <script>
-    // Prevent dark mode flash by setting theme immediately
     if (localStorage.getItem('tz-converter-dark-mode') === 'true') {
         document.documentElement.classList.add('dark');
     }
 </script>
 </head>
-<body class="transition-colors duration-200 bg-slate-100 dark:bg-gray-900">
-<div id="root"></div>
+<body>
+<div class="wrap">
+    <header>
+        <div>
+            <h1>Time zone converter</h1>
+            <p>Drag the timeline &mdash; the red line always shows the same instant in every zone.</p>
+        </div>
+        <button class="icon-btn" id="darkModeBtn"></button>
+    </header>
 
-<script type="text/babel">
-const { useState, useMemo, useRef, useEffect, useCallback } = React;
+    <div class="card controls">
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Add a city or time zone… (e.g. Tokyo, London, UTC)" autocomplete="off">
+            <div id="dropdown"></div>
+        </div>
+        <div id="quickAdd"><span class="hint">Quick add:</span></div>
+        <div class="controls-row">
+            <button class="btn" id="nowBtn">Now</button>
+            <button class="btn" id="prevHourBtn">◀ 1h</button>
+            <button class="btn" id="nextHourBtn">1h ▶</button>
+            <label>Jump to: <input type="datetime-local" id="jumpInput"></label>
+            <label class="spacer">24h <input type="checkbox" id="use24hCheckbox"></label>
+        </div>
+    </div>
 
-const PX_PER_HOUR = 60;
-const HOURS_BEFORE = 24;
-const HOURS_AFTER = 72;
-const TOTAL_HOURS = HOURS_BEFORE + HOURS_AFTER;
-const ROW_HEIGHT = 84;
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-const FALLBACK_ZONES = [
-    'UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
-    'America/Anchorage','America/Sao_Paulo','America/Mexico_City','America/Toronto',
-    'America/Vancouver','America/Bogota','Europe/London','Europe/Dublin','Europe/Paris',
-    'Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Moscow',
-    'Europe/Istanbul','Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Asia/Dubai',
-    'Asia/Karachi','Asia/Kolkata','Asia/Dhaka','Asia/Bangkok','Asia/Jakarta',
-    'Asia/Singapore','Asia/Hong_Kong','Asia/Shanghai','Asia/Tokyo','Asia/Seoul',
-    'Asia/Manila','Australia/Perth','Australia/Adelaide','Australia/Darwin',
-    'Australia/Brisbane','Australia/Sydney','Australia/Melbourne','Pacific/Auckland',
-    'Pacific/Fiji','Pacific/Honolulu'
-];
-
-const ZONE_ALIASES = {
-    uk: 'Europe/London', britain: 'Europe/London', england: 'Europe/London',
-    usa: 'America/New_York', nyc: 'America/New_York', 'new york': 'America/New_York',
-    la: 'America/Los_Angeles', 'los angeles': 'America/Los_Angeles',
-    sf: 'America/Los_Angeles', japan: 'Asia/Tokyo', china: 'Asia/Shanghai',
-    india: 'Asia/Kolkata', dubai: 'Asia/Dubai', germany: 'Europe/Berlin',
-    france: 'Europe/Paris', aus: 'Australia/Sydney', australia: 'Australia/Sydney',
-    nz: 'Pacific/Auckland', 'new zealand': 'Pacific/Auckland'
-};
-
-function getAllTimeZones() {
-    try {
-        if (typeof Intl.supportedValuesOf === 'function') {
-            return Intl.supportedValuesOf('timeZone');
-        }
-    } catch (e) {}
-    return FALLBACK_ZONES;
-}
-const ALL_TIMEZONES = getAllTimeZones();
-
-function getBrowserTimeZone() {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    } catch (e) {
-        return 'UTC';
-    }
-}
-
-function friendlyZoneParts(tz) {
-    if (tz === 'UTC' || tz === 'Etc/UTC') return { city: 'UTC', region: 'Coordinated Universal Time' };
-    const segs = tz.split('/');
-    const city = (segs[segs.length - 1] || tz).replace(/_/g, ' ');
-    const region = segs.length > 1 ? segs.slice(0, -1).join(' / ').replace(/_/g, ' ') : '';
-    return { city, region };
-}
-
-function getZonedDateParts(date, timeZone) {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-        timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', weekday: 'short'
-    });
-    const parts = dtf.formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
-    return {
-        year: +parts.year, month: +parts.month, day: +parts.day,
-        hour: +parts.hour, minute: +parts.minute, weekday: parts.weekday
-    };
-}
-
-function getTimeZoneOffsetMinutes(date, timeZone) {
-    const p = getZonedDateParts(date, timeZone);
-    const asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
-    return Math.round((asUTC - date.getTime()) / 60000);
-}
-
-// Interpret wall-clock components as local time *within* timeZone and return the matching UTC instant.
-function zonedTimeToUtc(year, month, day, hour, minute, timeZone) {
-    const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
-    const offset = getTimeZoneOffsetMinutes(guess, timeZone);
-    let utc = new Date(guess.getTime() - offset * 60000);
-    const offset2 = getTimeZoneOffsetMinutes(utc, timeZone);
-    if (offset2 !== offset) utc = new Date(guess.getTime() - offset2 * 60000);
-    return utc;
-}
-
-function formatOffsetLabel(date, timeZone) {
-    try {
-        const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' }).formatToParts(date);
-        const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
-        return tzPart === 'GMT' ? 'UTC' : tzPart.replace('GMT', 'UTC');
-    } catch (e) {
-        return '';
-    }
-}
-
-function formatClock(hour, minute, use24h) {
-    const mm = String(minute).padStart(2, '0');
-    if (use24h) return `${String(hour).padStart(2, '0')}:${mm}`;
-    const period = hour < 12 ? 'AM' : 'PM';
-    let h12 = hour % 12;
-    if (h12 === 0) h12 = 12;
-    return `${h12}:${mm} ${period}`;
-}
-
-function dayIndex(y, m, d) {
-    return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
-}
-
-function hourShade(hour) {
-    if (hour >= 8 && hour < 18) return 'day';
-    if ((hour >= 6 && hour < 8) || (hour >= 18 && hour < 22)) return 'transition';
-    return 'night';
-}
-
-const SHADE_CLASSES = {
-    day: 'bg-white dark:bg-gray-800',
-    dayWeekend: 'bg-amber-50 dark:bg-gray-800',
-    transition: 'bg-slate-50 dark:bg-gray-700/60',
-    transitionWeekend: 'bg-amber-100/60 dark:bg-gray-700/60',
-    night: 'bg-slate-200/80 dark:bg-gray-900'
-};
-
-function pad(n) { return String(n).padStart(2, '0'); }
-
-function TimeZoneConverter() {
-    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('tz-converter-dark-mode') === 'true');
-    const [use24h, setUse24h] = useState(() => localStorage.getItem('tz-converter-24h') === 'true');
-    const [zones, setZones] = useState(() => {
-        try {
-            const saved = JSON.parse(localStorage.getItem('tz-converter-zones'));
-            if (Array.isArray(saved) && saved.length) return saved;
-        } catch (e) {}
-        return [getBrowserTimeZone()];
-    });
-    const [query, setQuery] = useState('');
-    const [showDropdown, setShowDropdown] = useState(false);
-    const [timelineStart, setTimelineStart] = useState(() => {
-        const d = new Date();
-        d.setMinutes(0, 0, 0);
-        return new Date(d.getTime() - HOURS_BEFORE * 3600000);
-    });
-    const [selectedInstant, setSelectedInstant] = useState(() => new Date());
-    const [containerWidth, setContainerWidth] = useState(0);
-    const [, setClockTick] = useState(0);
-
-    const scrollRef = useRef(null);
-    const wrapperRef = useRef(null);
-    const rafRef = useRef(null);
-    const pendingInstantRef = useRef(new Date());
-    const dragRef = useRef({ dragging: false, startX: 0, startScroll: 0 });
-
-    useEffect(() => {
-        document.documentElement.classList.toggle('dark', darkMode);
-        localStorage.setItem('tz-converter-dark-mode', String(darkMode));
-    }, [darkMode]);
-
-    useEffect(() => {
-        localStorage.setItem('tz-converter-24h', String(use24h));
-    }, [use24h]);
-
-    useEffect(() => {
-        localStorage.setItem('tz-converter-zones', JSON.stringify(zones));
-    }, [zones]);
-
-    // Keep the "now" marker and DST-sensitive offsets fresh without requiring user interaction.
-    useEffect(() => {
-        const id = setInterval(() => setClockTick(t => t + 1), 60000);
-        return () => clearInterval(id);
-    }, []);
-
-    useEffect(() => {
-        const el = wrapperRef.current;
-        if (!el || typeof ResizeObserver === 'undefined') return;
-        const ro = new ResizeObserver(entries => {
-            for (const entry of entries) setContainerWidth(entry.contentRect.width);
-        });
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, []);
-
-    // Recenter the scroll position on the pending target whenever the timeline base or viewport size changes.
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!el || containerWidth <= 0) return;
-        const target = pendingInstantRef.current;
-        const hoursFromStart = (target.getTime() - timelineStart.getTime()) / 3600000;
-        const maxScroll = Math.max(0, TOTAL_HOURS * PX_PER_HOUR - containerWidth);
-        const left = Math.min(maxScroll, Math.max(0, hoursFromStart * PX_PER_HOUR - containerWidth / 2));
-        el.scrollLeft = left;
-        setSelectedInstant(target);
-    }, [timelineStart, containerWidth]);
-
-    const recenter = useCallback((instant) => {
-        pendingInstantRef.current = instant;
-        const d = new Date(instant.getTime() - HOURS_BEFORE * 3600000);
-        d.setMinutes(0, 0, 0);
-        setTimelineStart(d);
-    }, []);
-
-    const handleScroll = () => {
-        if (rafRef.current) return;
-        rafRef.current = requestAnimationFrame(() => {
-            rafRef.current = null;
-            const el = scrollRef.current;
-            if (!el) return;
-            const hours = (el.scrollLeft + el.clientWidth / 2) / PX_PER_HOUR;
-            const instant = new Date(timelineStart.getTime() + hours * 3600000);
-            pendingInstantRef.current = instant;
-            setSelectedInstant(instant);
-        });
-    };
-
-    // Click-and-drag scrolling for mouse/trackpad users (touch already scrolls natively).
-    useEffect(() => {
-        const onMove = (e) => {
-            const drag = dragRef.current;
-            if (!drag.dragging || !scrollRef.current) return;
-            scrollRef.current.scrollLeft = drag.startScroll - (e.pageX - drag.startX);
-        };
-        const onUp = () => {
-            dragRef.current.dragging = false;
-            document.body.style.userSelect = '';
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-        return () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-    }, []);
-
-    const startDrag = (e) => {
-        if (e.button !== 0 || !scrollRef.current) return;
-        dragRef.current = { dragging: true, startX: e.pageX, startScroll: scrollRef.current.scrollLeft };
-        document.body.style.userSelect = 'none';
-    };
-
-    const nudgeHours = (h) => {
-        if (!scrollRef.current) return;
-        scrollRef.current.scrollLeft += h * PX_PER_HOUR;
-    };
-
-    const addZone = (tz) => {
-        setZones(prev => prev.includes(tz) ? prev : [...prev, tz]);
-        setQuery('');
-        setShowDropdown(false);
-    };
-    const removeZone = (tz) => setZones(prev => prev.filter(z => z !== tz));
-    const moveZone = (index, dir) => {
-        setZones(prev => {
-            const next = [...prev];
-            const j = index + dir;
-            if (j < 0 || j >= next.length) return prev;
-            [next[index], next[j]] = [next[j], next[index]];
-            return next;
-        });
-    };
-
-    const searchResults = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return [];
-        const alias = ZONE_ALIASES[q];
-        const scored = [];
-        for (const tz of ALL_TIMEZONES) {
-            if (zones.includes(tz)) continue;
-            const haystack = tz.replace(/[_/]/g, ' ').toLowerCase();
-            const isAlias = alias === tz;
-            if (isAlias || haystack.includes(q)) {
-                scored.push({ tz, priority: isAlias ? 0 : (haystack.startsWith(q) ? 1 : 2) });
-            }
-        }
-        scored.sort((a, b) => a.priority - b.priority);
-        return scored.slice(0, 8).map(s => s.tz);
-    }, [query, zones]);
-
-    const quickAdds = useMemo(() => {
-        const suggestions = ['America/New_York', 'Europe/London', 'Asia/Tokyo', 'Australia/Sydney', 'Asia/Kolkata', 'Europe/Berlin'];
-        return suggestions.filter(tz => !zones.includes(tz));
-    }, [zones]);
-
-    const referenceZone = zones[0] || getBrowserTimeZone();
-    const refParts = getZonedDateParts(selectedInstant, referenceZone);
-    const refDayIndex = dayIndex(refParts.year, refParts.month, refParts.day);
-
-    const now = new Date();
-    const nowOffsetHours = (now.getTime() - timelineStart.getTime()) / 3600000;
-    const nowOffsetPx = nowOffsetHours * PX_PER_HOUR;
-    const nowInRange = nowOffsetHours >= 0 && nowOffsetHours <= TOTAL_HOURS;
-
-    const jumpInputValue = (() => {
-        const p = getZonedDateParts(selectedInstant, referenceZone);
-        return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
-    })();
-
-    const handleJumpChange = (e) => {
-        const v = e.target.value;
-        if (!v) return;
-        const [datePart, timePart] = v.split('T');
-        const [y, m, d] = datePart.split('-').map(Number);
-        const [h, mi] = timePart.split(':').map(Number);
-        recenter(zonedTimeToUtc(y, m, d, h, mi, referenceZone));
-    };
-
-    return (
-        <div className="min-h-screen p-4">
-            <div className="max-w-5xl mx-auto flex flex-col gap-4">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h1 className="text-2xl font-bold text-blue-600 dark:text-blue-400">Time zone converter</h1>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                            Drag the timeline &mdash; the red line always shows the same instant in every zone.
-                        </p>
+    <div class="card timeline-card">
+        <div id="emptyState">Add a time zone above to get started.</div>
+        <div id="timelineBody">
+            <div id="labelsColumn"></div>
+            <div class="scroll-outer">
+                <div class="center-line"></div>
+                <div id="scrollArea">
+                    <div id="scrollInner">
+                        <div id="nowMarker"><span>now</span></div>
+                        <div id="rulerRows"></div>
                     </div>
-                    <button
-                        onClick={() => setDarkMode(!darkMode)}
-                        className="px-3 py-2 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white shrink-0"
-                    >
-                        {darkMode ? '☀️' : '🌙'}
-                    </button>
-                </div>
-
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex flex-col gap-3 border dark:border-gray-700">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            value={query}
-                            onChange={(e) => { setQuery(e.target.value); setShowDropdown(true); }}
-                            onFocus={() => setShowDropdown(true)}
-                            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-                            placeholder="Add a city or time zone… (e.g. Tokyo, London, UTC)"
-                            className="w-full px-3 py-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
-                        />
-                        {showDropdown && searchResults.length > 0 && (
-                            <div className="absolute z-30 mt-1 w-full bg-white dark:bg-gray-800 border dark:border-gray-600 rounded shadow-lg max-h-64 overflow-y-auto">
-                                {searchResults.map(tz => {
-                                    const { city, region } = friendlyZoneParts(tz);
-                                    return (
-                                        <button
-                                            key={tz}
-                                            onMouseDown={(e) => { e.preventDefault(); addZone(tz); }}
-                                            className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-gray-700 flex justify-between items-center gap-3"
-                                        >
-                                            <span className="dark:text-white">
-                                                <span className="font-medium">{city}</span>
-                                                {region && <span className="text-slate-400 dark:text-slate-400"> — {region}</span>}
-                                            </span>
-                                            <span className="text-xs text-slate-400 shrink-0">{formatOffsetLabel(now, tz)}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    {quickAdds.length > 0 && zones.length < 3 && (
-                        <div className="flex flex-wrap gap-2">
-                            <span className="text-xs text-slate-400 self-center">Quick add:</span>
-                            {quickAdds.map(tz => (
-                                <button
-                                    key={tz}
-                                    onClick={() => addZone(tz)}
-                                    className="text-xs px-2 py-1 rounded-full border dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-gray-700 dark:text-white"
-                                >
-                                    + {friendlyZoneParts(tz).city}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t dark:border-gray-700">
-                        <button onClick={() => recenter(new Date())} className="px-3 py-1.5 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white text-sm">
-                            Now
-                        </button>
-                        <button onClick={() => nudgeHours(-1)} className="px-2.5 py-1.5 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white text-sm">◀ 1h</button>
-                        <button onClick={() => nudgeHours(1)} className="px-2.5 py-1.5 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white text-sm">1h ▶</button>
-
-                        <label className="flex items-center gap-2 text-sm dark:text-white ml-1">
-                            Jump to:
-                            <input
-                                type="datetime-local"
-                                value={jumpInputValue}
-                                onChange={handleJumpChange}
-                                className="px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
-                            />
-                        </label>
-
-                        <label className="flex items-center gap-2 text-sm dark:text-white ml-auto">
-                            24h
-                            <input type="checkbox" checked={use24h} onChange={(e) => setUse24h(e.target.checked)} />
-                        </label>
-                    </div>
-                </div>
-
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow border dark:border-gray-700 overflow-hidden">
-                    {zones.length === 0 ? (
-                        <div className="p-8 text-center text-slate-400">Add a time zone above to get started.</div>
-                    ) : (
-                        <div className="flex">
-                            <div className="flex flex-col shrink-0 w-36 sm:w-48 border-r dark:border-gray-700 bg-white dark:bg-gray-800 z-10">
-                                {zones.map((tz, i) => {
-                                    const { city, region } = friendlyZoneParts(tz);
-                                    const p = getZonedDateParts(selectedInstant, tz);
-                                    const diff = dayIndex(p.year, p.month, p.day) - refDayIndex;
-                                    return (
-                                        <div
-                                            key={tz}
-                                            style={{ height: ROW_HEIGHT }}
-                                            className="flex flex-col justify-center gap-0.5 px-3 border-b dark:border-gray-700 relative"
-                                        >
-                                            <div className="flex items-start justify-between gap-1">
-                                                <div className="min-w-0">
-                                                    <div className="font-semibold text-sm truncate dark:text-white">
-                                                        {city}{i === 0 && <span className="ml-1 text-amber-500" title="Reference zone for date comparisons">★</span>}
-                                                    </div>
-                                                    <div className="text-[11px] text-slate-400 truncate">{region || formatOffsetLabel(selectedInstant, tz)}{region ? ` · ${formatOffsetLabel(selectedInstant, tz)}` : ''}</div>
-                                                </div>
-                                                <div className="flex flex-col items-end shrink-0">
-                                                    <button onClick={() => removeZone(tz)} className="text-slate-300 hover:text-red-500 leading-none text-sm px-1" title="Remove">×</button>
-                                                    <div className="flex gap-0.5">
-                                                        <button onClick={() => moveZone(i, -1)} disabled={i === 0} className="text-slate-300 hover:text-blue-500 disabled:opacity-20 text-xs px-0.5" title="Move up">▲</button>
-                                                        <button onClick={() => moveZone(i, 1)} disabled={i === zones.length - 1} className="text-slate-300 hover:text-blue-500 disabled:opacity-20 text-xs px-0.5" title="Move down">▼</button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-baseline gap-2">
-                                                <span className="text-xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">{formatClock(p.hour, p.minute, use24h)}</span>
-                                            </div>
-                                            <div className="text-[11px] text-slate-400">
-                                                {p.weekday} {MONTHS[p.month - 1]} {p.day}
-                                                {diff !== 0 && (
-                                                    <span className={`ml-1 font-medium ${diff > 0 ? 'text-emerald-500' : 'text-orange-500'}`}>
-                                                        {diff > 0 ? `+${diff}d` : `${diff}d`}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            <div className="relative flex-1 min-w-0" ref={wrapperRef}>
-                                <div className="pointer-events-none absolute inset-y-0 z-20" style={{ left: '50%' }}>
-                                    <div className="w-0.5 h-full bg-rose-500 dark:bg-rose-400 -translate-x-1/2"></div>
-                                </div>
-                                <div
-                                    ref={scrollRef}
-                                    onScroll={handleScroll}
-                                    onMouseDown={startDrag}
-                                    className="overflow-x-auto overflow-y-hidden cursor-grab active:cursor-grabbing"
-                                >
-                                    <div style={{ width: TOTAL_HOURS * PX_PER_HOUR }} className="relative">
-                                        {nowInRange && (
-                                            <div className="absolute inset-y-0 z-10 border-l border-dashed border-emerald-500/70" style={{ left: nowOffsetPx }}>
-                                                <span className="absolute top-1 left-1 text-[10px] px-1 rounded bg-emerald-500 text-white whitespace-nowrap">now</span>
-                                            </div>
-                                        )}
-                                        {zones.map((tz) => {
-                                            const ticks = [];
-                                            for (let i = 0; i < TOTAL_HOURS; i++) {
-                                                const t = new Date(timelineStart.getTime() + i * 3600000);
-                                                const p = getZonedDateParts(t, tz);
-                                                const shade = hourShade(p.hour);
-                                                const wd = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
-                                                const isWeekend = wd === 0 || wd === 6;
-                                                const shadeKey = isWeekend && shade !== 'night' ? `${shade}Weekend` : shade;
-                                                const isMidnight = p.hour === 0;
-                                                ticks.push(
-                                                    <div
-                                                        key={i}
-                                                        style={{ width: PX_PER_HOUR }}
-                                                        className={`tick-cell h-full shrink-0 border-l ${isMidnight ? 'border-slate-400 dark:border-slate-500 border-l-2' : 'border-slate-100 dark:border-gray-700'} ${SHADE_CLASSES[shadeKey]}`}
-                                                    >
-                                                        {isMidnight && (
-                                                            <span className="text-[10px] text-slate-400 leading-tight">{MONTHS[p.month - 1]} {p.day}</span>
-                                                        )}
-                                                        <span className="text-xs text-slate-500 dark:text-slate-300 leading-tight tabular-nums">
-                                                            {use24h ? p.hour : formatClock(p.hour, 0, false).replace(':00', '').replace(' ', '')}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            }
-                                            return (
-                                                <div key={tz} style={{ height: ROW_HEIGHT }} className="flex border-b dark:border-gray-700">
-                                                    {ticks}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             </div>
         </div>
-    );
-}
+    </div>
+</div>
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<TimeZoneConverter />);
+<script>
+(function () {
+    'use strict';
+
+    var PX_PER_HOUR = 60;
+    var HOURS_BEFORE = 24;
+    var HOURS_AFTER = 72;
+    var TOTAL_HOURS = HOURS_BEFORE + HOURS_AFTER;
+    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    var FALLBACK_ZONES = [
+        'UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+        'America/Anchorage','America/Sao_Paulo','America/Mexico_City','America/Toronto',
+        'America/Vancouver','America/Bogota','Europe/London','Europe/Dublin','Europe/Paris',
+        'Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Moscow',
+        'Europe/Istanbul','Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Asia/Dubai',
+        'Asia/Karachi','Asia/Kolkata','Asia/Dhaka','Asia/Bangkok','Asia/Jakarta',
+        'Asia/Singapore','Asia/Hong_Kong','Asia/Shanghai','Asia/Tokyo','Asia/Seoul',
+        'Asia/Manila','Australia/Perth','Australia/Adelaide','Australia/Darwin',
+        'Australia/Brisbane','Australia/Sydney','Australia/Melbourne','Pacific/Auckland',
+        'Pacific/Fiji','Pacific/Honolulu'
+    ];
+
+    var ZONE_ALIASES = {
+        uk: 'Europe/London', britain: 'Europe/London', england: 'Europe/London',
+        usa: 'America/New_York', nyc: 'America/New_York', 'new york': 'America/New_York',
+        la: 'America/Los_Angeles', 'los angeles': 'America/Los_Angeles',
+        sf: 'America/Los_Angeles', japan: 'Asia/Tokyo', china: 'Asia/Shanghai',
+        india: 'Asia/Kolkata', dubai: 'Asia/Dubai', germany: 'Europe/Berlin',
+        france: 'Europe/Paris', aus: 'Australia/Sydney', australia: 'Australia/Sydney',
+        nz: 'Pacific/Auckland', 'new zealand': 'Pacific/Auckland'
+    };
+
+    function getAllTimeZones() {
+        try {
+            if (typeof Intl.supportedValuesOf === 'function') return Intl.supportedValuesOf('timeZone');
+        } catch (e) {}
+        return FALLBACK_ZONES;
+    }
+    var ALL_TIMEZONES = getAllTimeZones();
+
+    function getBrowserTimeZone() {
+        try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+        catch (e) { return 'UTC'; }
+    }
+
+    function friendlyZoneParts(tz) {
+        if (tz === 'UTC' || tz === 'Etc/UTC') return { city: 'UTC', region: 'Coordinated Universal Time' };
+        var segs = tz.split('/');
+        var city = (segs[segs.length - 1] || tz).replace(/_/g, ' ');
+        var region = segs.length > 1 ? segs.slice(0, -1).join(' / ').replace(/_/g, ' ') : '';
+        return { city: city, region: region };
+    }
+
+    function getZonedDateParts(date, timeZone) {
+        var dtf = new Intl.DateTimeFormat('en-US', {
+            timeZone: timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', weekday: 'short'
+        });
+        var parts = dtf.formatToParts(date).reduce(function (acc, p) { acc[p.type] = p.value; return acc; }, {});
+        return {
+            year: +parts.year, month: +parts.month, day: +parts.day,
+            hour: +parts.hour, minute: +parts.minute, weekday: parts.weekday
+        };
+    }
+
+    function getTimeZoneOffsetMinutes(date, timeZone) {
+        var p = getZonedDateParts(date, timeZone);
+        var asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+        return Math.round((asUTC - date.getTime()) / 60000);
+    }
+
+    // Interpret wall-clock components as local time *within* timeZone and return the matching UTC instant.
+    function zonedTimeToUtc(year, month, day, hour, minute, timeZone) {
+        var guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+        var offset = getTimeZoneOffsetMinutes(guess, timeZone);
+        var utc = new Date(guess.getTime() - offset * 60000);
+        var offset2 = getTimeZoneOffsetMinutes(utc, timeZone);
+        if (offset2 !== offset) utc = new Date(guess.getTime() - offset2 * 60000);
+        return utc;
+    }
+
+    function formatOffsetLabel(date, timeZone) {
+        try {
+            var parts = new Intl.DateTimeFormat('en-US', { timeZone: timeZone, timeZoneName: 'shortOffset' }).formatToParts(date);
+            var tzPart = 'GMT';
+            for (var i = 0; i < parts.length; i++) if (parts[i].type === 'timeZoneName') tzPart = parts[i].value;
+            return tzPart === 'GMT' ? 'UTC' : tzPart.replace('GMT', 'UTC');
+        } catch (e) { return ''; }
+    }
+
+    function formatClock(hour, minute, use24h) {
+        var mm = String(minute).padStart(2, '0');
+        if (use24h) return pad(hour) + ':' + mm;
+        var period = hour < 12 ? 'AM' : 'PM';
+        var h12 = hour % 12; if (h12 === 0) h12 = 12;
+        return h12 + ':' + mm + ' ' + period;
+    }
+
+    function dayIndex(y, m, d) { return Math.floor(Date.UTC(y, m - 1, d) / 86400000); }
+
+    function hourShade(hour) {
+        if (hour >= 8 && hour < 18) return 'day';
+        if ((hour >= 6 && hour < 8) || (hour >= 18 && hour < 22)) return 'transition';
+        return 'night';
+    }
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+    // ---- state ----
+    var darkMode = localStorage.getItem('tz-converter-dark-mode') === 'true';
+    var use24h = localStorage.getItem('tz-converter-24h') === 'true';
+    var zones = (function () {
+        var raw = localStorage.getItem('tz-converter-zones');
+        if (raw === null) return [getBrowserTimeZone()];
+        try {
+            var saved = JSON.parse(raw);
+            if (Array.isArray(saved)) return saved;
+        } catch (e) {}
+        return [getBrowserTimeZone()];
+    })();
+    var query = '';
+    var timelineStart = (function () {
+        var d = new Date(); d.setMinutes(0, 0, 0);
+        return new Date(d.getTime() - HOURS_BEFORE * 3600000);
+    })();
+    var selectedInstant = new Date();
+    var pendingInstant = new Date();
+    var containerWidth = 0;
+    var rafPending = false;
+    var dragging = false, dragStartX = 0, dragStartScroll = 0;
+
+    // ---- element refs ----
+    var els = {
+        darkModeBtn: document.getElementById('darkModeBtn'),
+        searchInput: document.getElementById('searchInput'),
+        dropdown: document.getElementById('dropdown'),
+        quickAdd: document.getElementById('quickAdd'),
+        nowBtn: document.getElementById('nowBtn'),
+        prevHourBtn: document.getElementById('prevHourBtn'),
+        nextHourBtn: document.getElementById('nextHourBtn'),
+        jumpInput: document.getElementById('jumpInput'),
+        use24hCheckbox: document.getElementById('use24hCheckbox'),
+        emptyState: document.getElementById('emptyState'),
+        timelineBody: document.getElementById('timelineBody'),
+        labelsColumn: document.getElementById('labelsColumn'),
+        scrollOuter: document.querySelector('.scroll-outer'),
+        scrollArea: document.getElementById('scrollArea'),
+        scrollInner: document.getElementById('scrollInner'),
+        nowMarker: document.getElementById('nowMarker'),
+        rulerRows: document.getElementById('rulerRows')
+    };
+
+    function saveZones() { localStorage.setItem('tz-converter-zones', JSON.stringify(zones)); }
+    function saveDarkMode() { localStorage.setItem('tz-converter-dark-mode', String(darkMode)); }
+    function saveUse24h() { localStorage.setItem('tz-converter-24h', String(use24h)); }
+
+    function referenceZone() { return zones[0] || getBrowserTimeZone(); }
+
+    // ---- rendering ----
+    function renderLabelCell(tz, i) {
+        var f = friendlyZoneParts(tz);
+        var star = i === 0 ? '<span class="star" title="Reference zone for date comparisons">★</span>' : '';
+        var up = '<button class="mini-btn" data-up="' + i + '" ' + (i === 0 ? 'disabled style="opacity:.2"' : '') + ' title="Move up">▲</button>';
+        var down = '<button class="mini-btn" data-down="' + i + '" ' + (i === zones.length - 1 ? 'disabled style="opacity:.2"' : '') + ' title="Move down">▼</button>';
+        return (
+            '<div class="label-cell" data-zone-index="' + i + '">' +
+                '<div class="label-top">' +
+                    '<div style="min-width:0">' +
+                        '<div class="label-city">' + escapeHtml(f.city) + star + '</div>' +
+                        '<div class="label-region" id="lbl-region-' + i + '">' + escapeHtml(f.region) + '</div>' +
+                    '</div>' +
+                    '<div class="label-actions">' +
+                        '<button class="mini-btn remove" data-remove="' + escapeHtml(tz) + '" title="Remove">×</button>' +
+                        '<div class="mini-row">' + up + down + '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="label-time" id="lbl-time-' + i + '"></div>' +
+                '<div class="label-date" id="lbl-date-' + i + '"></div>' +
+            '</div>'
+        );
+    }
+
+    function renderRulerRow(tz) {
+        var cells = [];
+        for (var i = 0; i < TOTAL_HOURS; i++) {
+            var t = new Date(timelineStart.getTime() + i * 3600000);
+            var p = getZonedDateParts(t, tz);
+            var shade = hourShade(p.hour);
+            var wd = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+            var isWeekend = wd === 0 || wd === 6;
+            var shadeClass = 'shade-' + (isWeekend && shade !== 'night' ? shade + '-weekend' : shade);
+            var isMidnight = p.hour === 0;
+            var dateLabel = isMidnight ? '<span class="date-label">' + MONTHS[p.month - 1] + ' ' + p.day + '</span>' : '';
+            var hourLabel = use24h ? p.hour : formatClock(p.hour, 0, false).replace(':00', '').replace(' ', '');
+            cells.push(
+                '<div class="tick ' + shadeClass + (isMidnight ? ' midnight' : '') + '" style="width:' + PX_PER_HOUR + 'px">' +
+                    dateLabel + '<span class="hour-label">' + hourLabel + '</span>' +
+                '</div>'
+            );
+        }
+        return '<div class="ruler-row">' + cells.join('') + '</div>';
+    }
+
+    function renderTimeline() {
+        var hasZones = zones.length > 0;
+        els.emptyState.style.display = hasZones ? 'none' : 'block';
+        els.timelineBody.style.display = hasZones ? 'flex' : 'none';
+
+        if (hasZones) {
+            els.labelsColumn.innerHTML = zones.map(renderLabelCell).join('');
+            els.scrollInner.style.width = (TOTAL_HOURS * PX_PER_HOUR) + 'px';
+            els.rulerRows.innerHTML = zones.map(renderRulerRow).join('');
+        }
+
+        updateJumpInput();
+        positionNowMarker();
+        applyScrollCentering();
+    }
+
+    function updateReadouts() {
+        var ref = referenceZone();
+        var refParts = getZonedDateParts(selectedInstant, ref);
+        var refDay = dayIndex(refParts.year, refParts.month, refParts.day);
+
+        zones.forEach(function (tz, i) {
+            var p = getZonedDateParts(selectedInstant, tz);
+            var timeEl = document.getElementById('lbl-time-' + i);
+            var dateEl = document.getElementById('lbl-date-' + i);
+            var regionEl = document.getElementById('lbl-region-' + i);
+            if (!timeEl) return;
+            timeEl.textContent = formatClock(p.hour, p.minute, use24h);
+            var diff = dayIndex(p.year, p.month, p.day) - refDay;
+            var diffHtml = '';
+            if (diff !== 0) {
+                diffHtml = '<span class="diff ' + (diff > 0 ? 'diff-ahead' : 'diff-behind') + '">' + (diff > 0 ? '+' + diff : diff) + 'd</span>';
+            }
+            dateEl.innerHTML = p.weekday + ' ' + MONTHS[p.month - 1] + ' ' + p.day + diffHtml;
+            var f = friendlyZoneParts(tz);
+            regionEl.textContent = (f.region ? f.region + ' · ' : '') + formatOffsetLabel(selectedInstant, tz);
+        });
+        updateJumpInput();
+    }
+
+    function updateJumpInput() {
+        var ref = referenceZone();
+        var p = getZonedDateParts(selectedInstant, ref);
+        els.jumpInput.value = p.year + '-' + pad(p.month) + '-' + pad(p.day) + 'T' + pad(p.hour) + ':' + pad(p.minute);
+    }
+
+    function positionNowMarker() {
+        var now = new Date();
+        var hoursFromStart = (now.getTime() - timelineStart.getTime()) / 3600000;
+        if (hoursFromStart >= 0 && hoursFromStart <= TOTAL_HOURS) {
+            els.nowMarker.style.display = '';
+            els.nowMarker.style.left = (hoursFromStart * PX_PER_HOUR) + 'px';
+        } else {
+            els.nowMarker.style.display = 'none';
+        }
+    }
+
+    function applyScrollCentering() {
+        if (containerWidth <= 0 || zones.length === 0) return;
+        var hoursFromStart = (pendingInstant.getTime() - timelineStart.getTime()) / 3600000;
+        var maxScroll = Math.max(0, TOTAL_HOURS * PX_PER_HOUR - containerWidth);
+        var left = Math.min(maxScroll, Math.max(0, hoursFromStart * PX_PER_HOUR - containerWidth / 2));
+        els.scrollArea.scrollLeft = left;
+        selectedInstant = pendingInstant;
+        updateReadouts();
+    }
+
+    function recenter(instant) {
+        pendingInstant = instant;
+        var d = new Date(instant.getTime() - HOURS_BEFORE * 3600000);
+        d.setMinutes(0, 0, 0);
+        timelineStart = d;
+        renderTimeline();
+    }
+
+    function handleScroll() {
+        if (rafPending) return;
+        rafPending = true;
+        requestAnimationFrame(function () {
+            rafPending = false;
+            var hours = (els.scrollArea.scrollLeft + els.scrollArea.clientWidth / 2) / PX_PER_HOUR;
+            var instant = new Date(timelineStart.getTime() + hours * 3600000);
+            pendingInstant = instant;
+            selectedInstant = instant;
+            updateReadouts();
+        });
+    }
+
+    // ---- zone management ----
+    function addZone(tz) {
+        if (zones.indexOf(tz) === -1) { zones = zones.concat([tz]); saveZones(); }
+        query = '';
+        els.searchInput.value = '';
+        closeDropdown();
+        renderQuickAdd();
+        renderTimeline();
+    }
+    function removeZone(tz) {
+        zones = zones.filter(function (z) { return z !== tz; });
+        saveZones();
+        renderQuickAdd();
+        renderTimeline();
+    }
+    function moveZone(index, dir) {
+        var j = index + dir;
+        if (j < 0 || j >= zones.length) return;
+        var tmp = zones[index]; zones[index] = zones[j]; zones[j] = tmp;
+        saveZones();
+        renderTimeline();
+    }
+
+    // ---- search / dropdown ----
+    function searchResults() {
+        var q = query.trim().toLowerCase();
+        if (!q) return [];
+        var alias = ZONE_ALIASES[q];
+        var scored = [];
+        ALL_TIMEZONES.forEach(function (tz) {
+            if (zones.indexOf(tz) !== -1) return;
+            var haystack = tz.replace(/[_/]/g, ' ').toLowerCase();
+            var isAlias = alias === tz;
+            if (isAlias || haystack.indexOf(q) !== -1) {
+                scored.push({ tz: tz, priority: isAlias ? 0 : (haystack.indexOf(q) === 0 ? 1 : 2) });
+            }
+        });
+        scored.sort(function (a, b) { return a.priority - b.priority; });
+        return scored.slice(0, 8).map(function (s) { return s.tz; });
+    }
+
+    function renderDropdown() {
+        var results = searchResults();
+        if (results.length === 0) { closeDropdown(); return; }
+        var now = new Date();
+        els.dropdown.innerHTML = results.map(function (tz) {
+            var f = friendlyZoneParts(tz);
+            return (
+                '<button class="dropdown-item" data-add="' + escapeHtml(tz) + '">' +
+                    '<span><strong>' + escapeHtml(f.city) + '</strong>' + (f.region ? ' <span class="region">— ' + escapeHtml(f.region) + '</span>' : '') + '</span>' +
+                    '<span class="offset">' + formatOffsetLabel(now, tz) + '</span>' +
+                '</button>'
+            );
+        }).join('');
+        els.dropdown.classList.add('open');
+    }
+    function closeDropdown() { els.dropdown.classList.remove('open'); }
+
+    function renderQuickAdd() {
+        var suggestions = ['America/New_York', 'Europe/London', 'Asia/Tokyo', 'Australia/Sydney', 'Asia/Kolkata', 'Europe/Berlin'];
+        var quickAdds = suggestions.filter(function (tz) { return zones.indexOf(tz) === -1; });
+        if (zones.length >= 3 || quickAdds.length === 0) { els.quickAdd.classList.remove('show'); return; }
+        els.quickAdd.innerHTML = '<span class="hint">Quick add:</span>' + quickAdds.map(function (tz) {
+            return '<button class="chip" data-add="' + escapeHtml(tz) + '">+ ' + escapeHtml(friendlyZoneParts(tz).city) + '</button>';
+        }).join('');
+        els.quickAdd.classList.add('show');
+    }
+
+    // ---- event wiring ----
+    els.searchInput.addEventListener('input', function (e) {
+        query = e.target.value;
+        renderDropdown();
+    });
+    els.searchInput.addEventListener('focus', renderDropdown);
+    els.searchInput.addEventListener('blur', function () { setTimeout(closeDropdown, 150); });
+    els.dropdown.addEventListener('mousedown', function (e) {
+        var btn = e.target.closest('[data-add]');
+        if (!btn) return;
+        e.preventDefault();
+        addZone(btn.getAttribute('data-add'));
+    });
+    els.quickAdd.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-add]');
+        if (btn) addZone(btn.getAttribute('data-add'));
+    });
+    els.labelsColumn.addEventListener('click', function (e) {
+        var rm = e.target.closest('[data-remove]');
+        if (rm) { removeZone(rm.getAttribute('data-remove')); return; }
+        var up = e.target.closest('[data-up]');
+        if (up) { moveZone(+up.getAttribute('data-up'), -1); return; }
+        var down = e.target.closest('[data-down]');
+        if (down) { moveZone(+down.getAttribute('data-down'), 1); return; }
+    });
+
+    els.nowBtn.addEventListener('click', function () { recenter(new Date()); });
+    els.prevHourBtn.addEventListener('click', function () { els.scrollArea.scrollLeft -= PX_PER_HOUR; });
+    els.nextHourBtn.addEventListener('click', function () { els.scrollArea.scrollLeft += PX_PER_HOUR; });
+    els.jumpInput.addEventListener('change', function (e) {
+        var v = e.target.value;
+        if (!v) return;
+        var parts = v.split('T');
+        var ymd = parts[0].split('-').map(Number);
+        var hm = parts[1].split(':').map(Number);
+        recenter(zonedTimeToUtc(ymd[0], ymd[1], ymd[2], hm[0], hm[1], referenceZone()));
+    });
+    els.use24hCheckbox.checked = use24h;
+    els.use24hCheckbox.addEventListener('change', function (e) {
+        use24h = e.target.checked;
+        saveUse24h();
+        renderTimeline();
+    });
+
+    els.darkModeBtn.textContent = darkMode ? '☀️' : '🌙';
+    els.darkModeBtn.addEventListener('click', function () {
+        darkMode = !darkMode;
+        document.documentElement.classList.toggle('dark', darkMode);
+        saveDarkMode();
+        els.darkModeBtn.textContent = darkMode ? '☀️' : '🌙';
+    });
+
+    els.scrollArea.addEventListener('scroll', handleScroll);
+    els.scrollArea.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        dragging = true;
+        dragStartX = e.pageX;
+        dragStartScroll = els.scrollArea.scrollLeft;
+        els.scrollArea.classList.add('dragging');
+    });
+    window.addEventListener('mousemove', function (e) {
+        if (!dragging) return;
+        els.scrollArea.scrollLeft = dragStartScroll - (e.pageX - dragStartX);
+    });
+    window.addEventListener('mouseup', function () {
+        dragging = false;
+        els.scrollArea.classList.remove('dragging');
+    });
+
+    if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(function (entries) {
+            containerWidth = entries[0].contentRect.width;
+            applyScrollCentering();
+        }).observe(els.scrollOuter);
+    } else {
+        containerWidth = els.scrollOuter.clientWidth;
+        window.addEventListener('resize', function () {
+            containerWidth = els.scrollOuter.clientWidth;
+            applyScrollCentering();
+        });
+    }
+
+    setInterval(positionNowMarker, 60000);
+
+    // ---- initial paint ----
+    renderQuickAdd();
+    renderTimeline();
+})();
 </script>
 </body>
 </html>
