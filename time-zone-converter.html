@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="tool-description" content="Line up a time across multiple time zones on a scrollable timeline">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time zone converter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+    tailwind.config = { darkMode: 'class' };
+</script>
+<style>
+    .tick-cell { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    ::-webkit-scrollbar { height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.4); border-radius: 999px; }
+</style>
+<script>
+    // Prevent dark mode flash by setting theme immediately
+    if (localStorage.getItem('tz-converter-dark-mode') === 'true') {
+        document.documentElement.classList.add('dark');
+    }
+</script>
+</head>
+<body class="transition-colors duration-200 bg-slate-100 dark:bg-gray-900">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useMemo, useRef, useEffect, useCallback } = React;
+
+const PX_PER_HOUR = 60;
+const HOURS_BEFORE = 24;
+const HOURS_AFTER = 72;
+const TOTAL_HOURS = HOURS_BEFORE + HOURS_AFTER;
+const ROW_HEIGHT = 84;
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const FALLBACK_ZONES = [
+    'UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+    'America/Anchorage','America/Sao_Paulo','America/Mexico_City','America/Toronto',
+    'America/Vancouver','America/Bogota','Europe/London','Europe/Dublin','Europe/Paris',
+    'Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Moscow',
+    'Europe/Istanbul','Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Asia/Dubai',
+    'Asia/Karachi','Asia/Kolkata','Asia/Dhaka','Asia/Bangkok','Asia/Jakarta',
+    'Asia/Singapore','Asia/Hong_Kong','Asia/Shanghai','Asia/Tokyo','Asia/Seoul',
+    'Asia/Manila','Australia/Perth','Australia/Adelaide','Australia/Darwin',
+    'Australia/Brisbane','Australia/Sydney','Australia/Melbourne','Pacific/Auckland',
+    'Pacific/Fiji','Pacific/Honolulu'
+];
+
+const ZONE_ALIASES = {
+    uk: 'Europe/London', britain: 'Europe/London', england: 'Europe/London',
+    usa: 'America/New_York', nyc: 'America/New_York', 'new york': 'America/New_York',
+    la: 'America/Los_Angeles', 'los angeles': 'America/Los_Angeles',
+    sf: 'America/Los_Angeles', japan: 'Asia/Tokyo', china: 'Asia/Shanghai',
+    india: 'Asia/Kolkata', dubai: 'Asia/Dubai', germany: 'Europe/Berlin',
+    france: 'Europe/Paris', aus: 'Australia/Sydney', australia: 'Australia/Sydney',
+    nz: 'Pacific/Auckland', 'new zealand': 'Pacific/Auckland'
+};
+
+function getAllTimeZones() {
+    try {
+        if (typeof Intl.supportedValuesOf === 'function') {
+            return Intl.supportedValuesOf('timeZone');
+        }
+    } catch (e) {}
+    return FALLBACK_ZONES;
+}
+const ALL_TIMEZONES = getAllTimeZones();
+
+function getBrowserTimeZone() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch (e) {
+        return 'UTC';
+    }
+}
+
+function friendlyZoneParts(tz) {
+    if (tz === 'UTC' || tz === 'Etc/UTC') return { city: 'UTC', region: 'Coordinated Universal Time' };
+    const segs = tz.split('/');
+    const city = (segs[segs.length - 1] || tz).replace(/_/g, ' ');
+    const region = segs.length > 1 ? segs.slice(0, -1).join(' / ').replace(/_/g, ' ') : '';
+    return { city, region };
+}
+
+function getZonedDateParts(date, timeZone) {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', weekday: 'short'
+    });
+    const parts = dtf.formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+    return {
+        year: +parts.year, month: +parts.month, day: +parts.day,
+        hour: +parts.hour, minute: +parts.minute, weekday: parts.weekday
+    };
+}
+
+function getTimeZoneOffsetMinutes(date, timeZone) {
+    const p = getZonedDateParts(date, timeZone);
+    const asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+    return Math.round((asUTC - date.getTime()) / 60000);
+}
+
+// Interpret wall-clock components as local time *within* timeZone and return the matching UTC instant.
+function zonedTimeToUtc(year, month, day, hour, minute, timeZone) {
+    const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+    const offset = getTimeZoneOffsetMinutes(guess, timeZone);
+    let utc = new Date(guess.getTime() - offset * 60000);
+    const offset2 = getTimeZoneOffsetMinutes(utc, timeZone);
+    if (offset2 !== offset) utc = new Date(guess.getTime() - offset2 * 60000);
+    return utc;
+}
+
+function formatOffsetLabel(date, timeZone) {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' }).formatToParts(date);
+        const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
+        return tzPart === 'GMT' ? 'UTC' : tzPart.replace('GMT', 'UTC');
+    } catch (e) {
+        return '';
+    }
+}
+
+function formatClock(hour, minute, use24h) {
+    const mm = String(minute).padStart(2, '0');
+    if (use24h) return `${String(hour).padStart(2, '0')}:${mm}`;
+    const period = hour < 12 ? 'AM' : 'PM';
+    let h12 = hour % 12;
+    if (h12 === 0) h12 = 12;
+    return `${h12}:${mm} ${period}`;
+}
+
+function dayIndex(y, m, d) {
+    return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+}
+
+function hourShade(hour) {
+    if (hour >= 8 && hour < 18) return 'day';
+    if ((hour >= 6 && hour < 8) || (hour >= 18 && hour < 22)) return 'transition';
+    return 'night';
+}
+
+const SHADE_CLASSES = {
+    day: 'bg-white dark:bg-gray-800',
+    dayWeekend: 'bg-amber-50 dark:bg-gray-800',
+    transition: 'bg-slate-50 dark:bg-gray-700/60',
+    transitionWeekend: 'bg-amber-100/60 dark:bg-gray-700/60',
+    night: 'bg-slate-200/80 dark:bg-gray-900'
+};
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+function TimeZoneConverter() {
+    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('tz-converter-dark-mode') === 'true');
+    const [use24h, setUse24h] = useState(() => localStorage.getItem('tz-converter-24h') === 'true');
+    const [zones, setZones] = useState(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('tz-converter-zones'));
+            if (Array.isArray(saved) && saved.length) return saved;
+        } catch (e) {}
+        return [getBrowserTimeZone()];
+    });
+    const [query, setQuery] = useState('');
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [timelineStart, setTimelineStart] = useState(() => {
+        const d = new Date();
+        d.setMinutes(0, 0, 0);
+        return new Date(d.getTime() - HOURS_BEFORE * 3600000);
+    });
+    const [selectedInstant, setSelectedInstant] = useState(() => new Date());
+    const [containerWidth, setContainerWidth] = useState(0);
+    const [, setClockTick] = useState(0);
+
+    const scrollRef = useRef(null);
+    const wrapperRef = useRef(null);
+    const rafRef = useRef(null);
+    const pendingInstantRef = useRef(new Date());
+    const dragRef = useRef({ dragging: false, startX: 0, startScroll: 0 });
+
+    useEffect(() => {
+        document.documentElement.classList.toggle('dark', darkMode);
+        localStorage.setItem('tz-converter-dark-mode', String(darkMode));
+    }, [darkMode]);
+
+    useEffect(() => {
+        localStorage.setItem('tz-converter-24h', String(use24h));
+    }, [use24h]);
+
+    useEffect(() => {
+        localStorage.setItem('tz-converter-zones', JSON.stringify(zones));
+    }, [zones]);
+
+    // Keep the "now" marker and DST-sensitive offsets fresh without requiring user interaction.
+    useEffect(() => {
+        const id = setInterval(() => setClockTick(t => t + 1), 60000);
+        return () => clearInterval(id);
+    }, []);
+
+    useEffect(() => {
+        const el = wrapperRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const ro = new ResizeObserver(entries => {
+            for (const entry of entries) setContainerWidth(entry.contentRect.width);
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    // Recenter the scroll position on the pending target whenever the timeline base or viewport size changes.
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el || containerWidth <= 0) return;
+        const target = pendingInstantRef.current;
+        const hoursFromStart = (target.getTime() - timelineStart.getTime()) / 3600000;
+        const maxScroll = Math.max(0, TOTAL_HOURS * PX_PER_HOUR - containerWidth);
+        const left = Math.min(maxScroll, Math.max(0, hoursFromStart * PX_PER_HOUR - containerWidth / 2));
+        el.scrollLeft = left;
+        setSelectedInstant(target);
+    }, [timelineStart, containerWidth]);
+
+    const recenter = useCallback((instant) => {
+        pendingInstantRef.current = instant;
+        const d = new Date(instant.getTime() - HOURS_BEFORE * 3600000);
+        d.setMinutes(0, 0, 0);
+        setTimelineStart(d);
+    }, []);
+
+    const handleScroll = () => {
+        if (rafRef.current) return;
+        rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = null;
+            const el = scrollRef.current;
+            if (!el) return;
+            const hours = (el.scrollLeft + el.clientWidth / 2) / PX_PER_HOUR;
+            const instant = new Date(timelineStart.getTime() + hours * 3600000);
+            pendingInstantRef.current = instant;
+            setSelectedInstant(instant);
+        });
+    };
+
+    // Click-and-drag scrolling for mouse/trackpad users (touch already scrolls natively).
+    useEffect(() => {
+        const onMove = (e) => {
+            const drag = dragRef.current;
+            if (!drag.dragging || !scrollRef.current) return;
+            scrollRef.current.scrollLeft = drag.startScroll - (e.pageX - drag.startX);
+        };
+        const onUp = () => {
+            dragRef.current.dragging = false;
+            document.body.style.userSelect = '';
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+    }, []);
+
+    const startDrag = (e) => {
+        if (e.button !== 0 || !scrollRef.current) return;
+        dragRef.current = { dragging: true, startX: e.pageX, startScroll: scrollRef.current.scrollLeft };
+        document.body.style.userSelect = 'none';
+    };
+
+    const nudgeHours = (h) => {
+        if (!scrollRef.current) return;
+        scrollRef.current.scrollLeft += h * PX_PER_HOUR;
+    };
+
+    const addZone = (tz) => {
+        setZones(prev => prev.includes(tz) ? prev : [...prev, tz]);
+        setQuery('');
+        setShowDropdown(false);
+    };
+    const removeZone = (tz) => setZones(prev => prev.filter(z => z !== tz));
+    const moveZone = (index, dir) => {
+        setZones(prev => {
+            const next = [...prev];
+            const j = index + dir;
+            if (j < 0 || j >= next.length) return prev;
+            [next[index], next[j]] = [next[j], next[index]];
+            return next;
+        });
+    };
+
+    const searchResults = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return [];
+        const alias = ZONE_ALIASES[q];
+        const scored = [];
+        for (const tz of ALL_TIMEZONES) {
+            if (zones.includes(tz)) continue;
+            const haystack = tz.replace(/[_/]/g, ' ').toLowerCase();
+            const isAlias = alias === tz;
+            if (isAlias || haystack.includes(q)) {
+                scored.push({ tz, priority: isAlias ? 0 : (haystack.startsWith(q) ? 1 : 2) });
+            }
+        }
+        scored.sort((a, b) => a.priority - b.priority);
+        return scored.slice(0, 8).map(s => s.tz);
+    }, [query, zones]);
+
+    const quickAdds = useMemo(() => {
+        const suggestions = ['America/New_York', 'Europe/London', 'Asia/Tokyo', 'Australia/Sydney', 'Asia/Kolkata', 'Europe/Berlin'];
+        return suggestions.filter(tz => !zones.includes(tz));
+    }, [zones]);
+
+    const referenceZone = zones[0] || getBrowserTimeZone();
+    const refParts = getZonedDateParts(selectedInstant, referenceZone);
+    const refDayIndex = dayIndex(refParts.year, refParts.month, refParts.day);
+
+    const now = new Date();
+    const nowOffsetHours = (now.getTime() - timelineStart.getTime()) / 3600000;
+    const nowOffsetPx = nowOffsetHours * PX_PER_HOUR;
+    const nowInRange = nowOffsetHours >= 0 && nowOffsetHours <= TOTAL_HOURS;
+
+    const jumpInputValue = (() => {
+        const p = getZonedDateParts(selectedInstant, referenceZone);
+        return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
+    })();
+
+    const handleJumpChange = (e) => {
+        const v = e.target.value;
+        if (!v) return;
+        const [datePart, timePart] = v.split('T');
+        const [y, m, d] = datePart.split('-').map(Number);
+        const [h, mi] = timePart.split(':').map(Number);
+        recenter(zonedTimeToUtc(y, m, d, h, mi, referenceZone));
+    };
+
+    return (
+        <div className="min-h-screen p-4">
+            <div className="max-w-5xl mx-auto flex flex-col gap-4">
+                <div className="flex justify-between items-center">
+                    <div>
+                        <h1 className="text-2xl font-bold text-blue-600 dark:text-blue-400">Time zone converter</h1>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                            Drag the timeline &mdash; the red line always shows the same instant in every zone.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => setDarkMode(!darkMode)}
+                        className="px-3 py-2 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white shrink-0"
+                    >
+                        {darkMode ? '☀️' : '🌙'}
+                    </button>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex flex-col gap-3 border dark:border-gray-700">
+                    <div className="relative">
+                        <input
+                            type="text"
+                            value={query}
+                            onChange={(e) => { setQuery(e.target.value); setShowDropdown(true); }}
+                            onFocus={() => setShowDropdown(true)}
+                            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                            placeholder="Add a city or time zone… (e.g. Tokyo, London, UTC)"
+                            className="w-full px-3 py-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
+                        />
+                        {showDropdown && searchResults.length > 0 && (
+                            <div className="absolute z-30 mt-1 w-full bg-white dark:bg-gray-800 border dark:border-gray-600 rounded shadow-lg max-h-64 overflow-y-auto">
+                                {searchResults.map(tz => {
+                                    const { city, region } = friendlyZoneParts(tz);
+                                    return (
+                                        <button
+                                            key={tz}
+                                            onMouseDown={(e) => { e.preventDefault(); addZone(tz); }}
+                                            className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-gray-700 flex justify-between items-center gap-3"
+                                        >
+                                            <span className="dark:text-white">
+                                                <span className="font-medium">{city}</span>
+                                                {region && <span className="text-slate-400 dark:text-slate-400"> — {region}</span>}
+                                            </span>
+                                            <span className="text-xs text-slate-400 shrink-0">{formatOffsetLabel(now, tz)}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    {quickAdds.length > 0 && zones.length < 3 && (
+                        <div className="flex flex-wrap gap-2">
+                            <span className="text-xs text-slate-400 self-center">Quick add:</span>
+                            {quickAdds.map(tz => (
+                                <button
+                                    key={tz}
+                                    onClick={() => addZone(tz)}
+                                    className="text-xs px-2 py-1 rounded-full border dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-gray-700 dark:text-white"
+                                >
+                                    + {friendlyZoneParts(tz).city}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t dark:border-gray-700">
+                        <button onClick={() => recenter(new Date())} className="px-3 py-1.5 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white text-sm">
+                            Now
+                        </button>
+                        <button onClick={() => nudgeHours(-1)} className="px-2.5 py-1.5 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white text-sm">◀ 1h</button>
+                        <button onClick={() => nudgeHours(1)} className="px-2.5 py-1.5 rounded border dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white text-sm">1h ▶</button>
+
+                        <label className="flex items-center gap-2 text-sm dark:text-white ml-1">
+                            Jump to:
+                            <input
+                                type="datetime-local"
+                                value={jumpInputValue}
+                                onChange={handleJumpChange}
+                                className="px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                            />
+                        </label>
+
+                        <label className="flex items-center gap-2 text-sm dark:text-white ml-auto">
+                            24h
+                            <input type="checkbox" checked={use24h} onChange={(e) => setUse24h(e.target.checked)} />
+                        </label>
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow border dark:border-gray-700 overflow-hidden">
+                    {zones.length === 0 ? (
+                        <div className="p-8 text-center text-slate-400">Add a time zone above to get started.</div>
+                    ) : (
+                        <div className="flex">
+                            <div className="flex flex-col shrink-0 w-36 sm:w-48 border-r dark:border-gray-700 bg-white dark:bg-gray-800 z-10">
+                                {zones.map((tz, i) => {
+                                    const { city, region } = friendlyZoneParts(tz);
+                                    const p = getZonedDateParts(selectedInstant, tz);
+                                    const diff = dayIndex(p.year, p.month, p.day) - refDayIndex;
+                                    return (
+                                        <div
+                                            key={tz}
+                                            style={{ height: ROW_HEIGHT }}
+                                            className="flex flex-col justify-center gap-0.5 px-3 border-b dark:border-gray-700 relative"
+                                        >
+                                            <div className="flex items-start justify-between gap-1">
+                                                <div className="min-w-0">
+                                                    <div className="font-semibold text-sm truncate dark:text-white">
+                                                        {city}{i === 0 && <span className="ml-1 text-amber-500" title="Reference zone for date comparisons">★</span>}
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-400 truncate">{region || formatOffsetLabel(selectedInstant, tz)}{region ? ` · ${formatOffsetLabel(selectedInstant, tz)}` : ''}</div>
+                                                </div>
+                                                <div className="flex flex-col items-end shrink-0">
+                                                    <button onClick={() => removeZone(tz)} className="text-slate-300 hover:text-red-500 leading-none text-sm px-1" title="Remove">×</button>
+                                                    <div className="flex gap-0.5">
+                                                        <button onClick={() => moveZone(i, -1)} disabled={i === 0} className="text-slate-300 hover:text-blue-500 disabled:opacity-20 text-xs px-0.5" title="Move up">▲</button>
+                                                        <button onClick={() => moveZone(i, 1)} disabled={i === zones.length - 1} className="text-slate-300 hover:text-blue-500 disabled:opacity-20 text-xs px-0.5" title="Move down">▼</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">{formatClock(p.hour, p.minute, use24h)}</span>
+                                            </div>
+                                            <div className="text-[11px] text-slate-400">
+                                                {p.weekday} {MONTHS[p.month - 1]} {p.day}
+                                                {diff !== 0 && (
+                                                    <span className={`ml-1 font-medium ${diff > 0 ? 'text-emerald-500' : 'text-orange-500'}`}>
+                                                        {diff > 0 ? `+${diff}d` : `${diff}d`}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="relative flex-1 min-w-0" ref={wrapperRef}>
+                                <div className="pointer-events-none absolute inset-y-0 z-20" style={{ left: '50%' }}>
+                                    <div className="w-0.5 h-full bg-rose-500 dark:bg-rose-400 -translate-x-1/2"></div>
+                                </div>
+                                <div
+                                    ref={scrollRef}
+                                    onScroll={handleScroll}
+                                    onMouseDown={startDrag}
+                                    className="overflow-x-auto overflow-y-hidden cursor-grab active:cursor-grabbing"
+                                >
+                                    <div style={{ width: TOTAL_HOURS * PX_PER_HOUR }} className="relative">
+                                        {nowInRange && (
+                                            <div className="absolute inset-y-0 z-10 border-l border-dashed border-emerald-500/70" style={{ left: nowOffsetPx }}>
+                                                <span className="absolute top-1 left-1 text-[10px] px-1 rounded bg-emerald-500 text-white whitespace-nowrap">now</span>
+                                            </div>
+                                        )}
+                                        {zones.map((tz) => {
+                                            const ticks = [];
+                                            for (let i = 0; i < TOTAL_HOURS; i++) {
+                                                const t = new Date(timelineStart.getTime() + i * 3600000);
+                                                const p = getZonedDateParts(t, tz);
+                                                const shade = hourShade(p.hour);
+                                                const wd = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+                                                const isWeekend = wd === 0 || wd === 6;
+                                                const shadeKey = isWeekend && shade !== 'night' ? `${shade}Weekend` : shade;
+                                                const isMidnight = p.hour === 0;
+                                                ticks.push(
+                                                    <div
+                                                        key={i}
+                                                        style={{ width: PX_PER_HOUR }}
+                                                        className={`tick-cell h-full shrink-0 border-l ${isMidnight ? 'border-slate-400 dark:border-slate-500 border-l-2' : 'border-slate-100 dark:border-gray-700'} ${SHADE_CLASSES[shadeKey]}`}
+                                                    >
+                                                        {isMidnight && (
+                                                            <span className="text-[10px] text-slate-400 leading-tight">{MONTHS[p.month - 1]} {p.day}</span>
+                                                        )}
+                                                        <span className="text-xs text-slate-500 dark:text-slate-300 leading-tight tabular-nums">
+                                                            {use24h ? p.hour : formatClock(p.hour, 0, false).replace(':00', '').replace(' ', '')}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            }
+                                            return (
+                                                <div key={tz} style={{ height: ROW_HEIGHT }} className="flex border-b dark:border-gray-700">
+                                                    {ticks}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<TimeZoneConverter />);
+</script>
+</body>
+</html>
